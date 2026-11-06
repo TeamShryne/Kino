@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import com.teamshryne.kino.ui.screens.ChatScreen
 import com.teamshryne.kino.ui.screens.ChatsScreen
 import com.teamshryne.kino.ui.screens.SettingsScreen
+import com.teamshryne.kino.ui.screens.DeepSeekLoginScreen
 
 private enum class MainTab(val title: String) { Chats("Chats"), Settings("Settings") }
 
@@ -37,6 +38,20 @@ fun KinoApp(model: KinoViewModel) {
     val messages by model.messages.collectAsState()
     val dark by model.darkTheme.collectAsState()
     val showToolDetails by model.showToolDetails.collectAsState()
+    val deepSeekConnected by model.deepSeekConnected.collectAsState()
+    val capabilities by model.capabilities.collectAsState()
+    val selectedModel by model.selectedModel.collectAsState()
+    val thinkingEnabled by model.thinkingEnabled.collectAsState()
+    val searchEnabled by model.searchEnabled.collectAsState()
+    val providerError by model.providerError.collectAsState()
+    val providerBusy by model.providerBusy.collectAsState()
+    val isStreaming by model.isStreaming.collectAsState()
+    val streamingText by model.streamingText.collectAsState()
+    val streamingThinking by model.streamingThinking.collectAsState()
+    val streamingSearch by model.streamingSearch.collectAsState()
+    val contextTokens by model.contextTokens.collectAsState()
+    val attachedFiles by model.attachedFiles.collectAsState()
+    val remoteSessions by model.remoteSessions.collectAsState()
     var tab by rememberSaveable { mutableStateOf(MainTab.Chats) }
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -47,6 +62,7 @@ fun KinoApp(model: KinoViewModel) {
     BackHandler(enabled = activeChat != null || tab == MainTab.Settings) {
         when {
             activeChat != null -> model.closeChat()
+            settingsPage == "deepseek-login" -> settingsPage = "provider"
             settingsPage != null -> settingsPage = null
             else -> tab = MainTab.Chats
         }
@@ -72,6 +88,26 @@ fun KinoApp(model: KinoViewModel) {
             onBack = model::closeChat,
             onDelete = { deleteTarget = activeChat },
             onSend = model::send,
+            models = capabilities?.models.orEmpty(),
+            selectedModel = selectedModel,
+            thinkingEnabled = thinkingEnabled,
+            searchEnabled = searchEnabled,
+            contextTokens = contextTokens,
+            contextLimit = if (thinkingEnabled) capabilities?.thinkingContextLimit ?: 0 else capabilities?.normalContextLimit ?: 0,
+            isBusy = isStreaming,
+            liveText = streamingText,
+            liveThinking = streamingThinking,
+            liveSearch = streamingSearch,
+            error = providerError,
+            attachedFiles = attachedFiles,
+            onModelChange = model::setSelectedModel,
+            onThinkingChange = model::setThinking,
+            onSearchChange = model::setSearch,
+            onAttach = model::attachFiles,
+            onRemoveAttachment = model::removeAttachment,
+            onStop = model::stopGeneration,
+            onFeedback = model::submitFeedback,
+            onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
         )
     } else {
         Scaffold(
@@ -101,7 +137,11 @@ fun KinoApp(model: KinoViewModel) {
             containerColor = MaterialTheme.colorScheme.background,
         ) { insets ->
             Box(Modifier.fillMaxSize().padding(insets)) {
-                if (tab == MainTab.Settings) SettingsScreen(
+                if (tab == MainTab.Settings && settingsPage == "deepseek-login") DeepSeekLoginScreen(
+                    connected = deepSeekConnected,
+                    onCredentials = model::saveDeepSeekCredentials,
+                    onBack = { settingsPage = "provider" },
+                ) else if (tab == MainTab.Settings) SettingsScreen(
                     page = settingsPage,
                     dark = dark,
                     showToolDetails = showToolDetails,
@@ -109,6 +149,25 @@ fun KinoApp(model: KinoViewModel) {
                     onOpen = { settingsPage = it },
                     onThemeChange = model::setDarkTheme,
                     onToolDetailChange = model::setShowToolDetails,
+                    deepSeekConnected = deepSeekConnected,
+                    models = capabilities?.models.orEmpty(),
+                    selectedModel = selectedModel,
+                    thinkingEnabled = thinkingEnabled,
+                    searchEnabled = searchEnabled,
+                    providerError = providerError,
+                    providerBusy = providerBusy,
+                    onConnect = { settingsPage = "deepseek-login" },
+                    onDisconnect = model::disconnectDeepSeek,
+                    onRefreshModels = model::refreshCapabilities,
+                    onModelChange = model::setSelectedModel,
+                    onThinkingChange = model::setThinking,
+                    onSearchChange = model::setSearch,
+                    remoteSessions = remoteSessions,
+                    onRefreshSessions = model::refreshRemoteSessions,
+                    onOpenRemoteSession = model::openRemoteSession,
+                    onPinRemoteSession = model::pinRemoteSession,
+                    onDeleteRemoteSession = model::deleteRemoteSession,
+                    onRenameRemoteSession = model::renameRemoteSession,
                 ) else ChatsScreen(
                     chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
                     query = query,

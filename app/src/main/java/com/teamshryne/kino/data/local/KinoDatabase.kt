@@ -6,12 +6,13 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.teamshryne.kino.domain.model.KinoChat
 import com.teamshryne.kino.domain.model.KinoMessage
+import com.teamshryne.kino.domain.model.ChatProviderState
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.domain.model.ToolActivity
 import java.util.UUID
 
 /** Local schema for conversations and their ordered message/tool activity timeline. */
-class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 1) {
+class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 2) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -32,10 +33,27 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             created_at INTEGER NOT NULL,
             tool_name TEXT,
             tool_status TEXT,
-            tool_detail TEXT
+            tool_detail TEXT,
+            core_kind TEXT,
+            metadata TEXT,
+            token_usage INTEGER
         )""".trimIndent())
         db.execSQL("CREATE INDEX messages_by_chat ON messages(chat_id, id)")
+        createProviderStateTable(db)
         seedExample(db)
+    }
+
+    private fun createProviderStateTable(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE chat_provider_state (
+            chat_id TEXT PRIMARY KEY NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL DEFAULT 'deepseek',
+            session_id TEXT NOT NULL DEFAULT '',
+            parent_message_id INTEGER NOT NULL DEFAULT 0,
+            model_type TEXT NOT NULL DEFAULT 'instant',
+            context_tokens INTEGER NOT NULL DEFAULT 0,
+            thinking_enabled INTEGER NOT NULL DEFAULT 0,
+            search_enabled INTEGER NOT NULL DEFAULT 0
+        )""".trimIndent())
     }
 
     private fun seedExample(db: SQLiteDatabase) {
@@ -88,7 +106,12 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
     })
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Add explicit, forward-only schema migrations here as persistence evolves.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN core_kind TEXT")
+            db.execSQL("ALTER TABLE messages ADD COLUMN metadata TEXT")
+            db.execSQL("ALTER TABLE messages ADD COLUMN token_usage INTEGER")
+            createProviderStateTable(db)
+        }
     }
 
     fun listChats(): List<KinoChat> = readableDatabase.rawQuery(
@@ -99,7 +122,7 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toChat()) } }
 
     fun listMessages(chatId: String): List<KinoMessage> = readableDatabase.rawQuery(
-        "SELECT id, chat_id, role, text, created_at, tool_name, tool_status, tool_detail FROM messages WHERE chat_id=? ORDER BY id",
+        "SELECT id, chat_id, role, text, created_at, tool_name, tool_status, tool_detail, core_kind, metadata, token_usage FROM messages WHERE chat_id=? ORDER BY id",
         arrayOf(chatId),
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toMessage()) } }
 
@@ -135,19 +158,44 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
     }
 
     /** Persists future provider replies and tool events through the same timeline. */
-    fun addAgentMessage(chatId: String, role: MessageRole, text: String, tool: ToolActivity? = null) {
+    fun addAgentMessage(chatId: String, role: MessageRole, text: String, tool: ToolActivity? = null, kind: String? = null, metadata: String? = null, tokenUsage: Long? = null) {
         require(role != MessageRole.USER) { "Use addUserMessage for user content" }
         val now = System.currentTimeMillis()
         val db = writableDatabase
         db.beginTransaction()
         try {
             insertMessage(db, chatId, role, text, now, tool)
+            db.execSQL("UPDATE messages SET core_kind=?, metadata=?, token_usage=? WHERE id=last_insert_rowid()", arrayOf(kind, metadata, tokenUsage))
             db.execSQL("UPDATE chats SET updated_at=? WHERE id=?", arrayOf(now, chatId))
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
         }
     }
+
+    fun providerState(chatId: String): ChatProviderState? = readableDatabase.rawQuery(
+        "SELECT chat_id, provider, session_id, parent_message_id, model_type, context_tokens, thinking_enabled, search_enabled FROM chat_provider_state WHERE chat_id=?",
+        arrayOf(chatId),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) null else ChatProviderState(
+            chatId = cursor.getString(0), provider = cursor.getString(1), sessionId = cursor.getString(2),
+            parentMessageId = cursor.getLong(3), modelType = cursor.getString(4), contextTokens = cursor.getLong(5),
+            thinkingEnabled = cursor.getInt(6) != 0, searchEnabled = cursor.getInt(7) != 0,
+        )
+    }
+
+    fun saveProviderState(state: ChatProviderState) {
+        writableDatabase.insertWithOnConflict("chat_provider_state", null, ContentValues().apply {
+            put("chat_id", state.chatId); put("provider", state.provider); put("session_id", state.sessionId)
+            put("parent_message_id", state.parentMessageId); put("model_type", state.modelType)
+            put("context_tokens", state.contextTokens); put("thinking_enabled", if (state.thinkingEnabled) 1 else 0)
+            put("search_enabled", if (state.searchEnabled) 1 else 0)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun chatForSession(sessionId: String): String? = readableDatabase.rawQuery(
+        "SELECT chat_id FROM chat_provider_state WHERE session_id=? LIMIT 1", arrayOf(sessionId),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
 
     fun deleteChat(chatId: String): Int = writableDatabase.delete("chats", "id=?", arrayOf(chatId))
 
@@ -161,6 +209,7 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
         return KinoMessage(
             id = getLong(0), chatId = getString(1), role = MessageRole.fromStorage(getString(2)),
             text = getString(3), createdAt = getLong(4), tool = tool,
+            kind = nullableString(8), metadata = nullableString(9), tokenUsage = if (isNull(10)) null else getLong(10),
         )
     }
 

@@ -32,6 +32,12 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.ThumbUpOffAlt
+import androidx.compose.material.icons.rounded.ThumbDownOffAlt
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +52,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.FilterChip
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.ui.components.EmptyPanel
+import com.teamshryne.kino.data.provider.ProviderModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +85,26 @@ fun ChatScreen(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onSend: (String) -> Unit,
+    models: List<ProviderModel>,
+    selectedModel: String,
+    thinkingEnabled: Boolean,
+    searchEnabled: Boolean,
+    contextTokens: Long,
+    contextLimit: Long,
+    isBusy: Boolean,
+    liveText: String,
+    liveThinking: String,
+    liveSearch: List<String>,
+    error: String?,
+    attachedFiles: List<Pair<String, String>>,
+    onModelChange: (String) -> Unit,
+    onThinkingChange: (Boolean) -> Unit,
+    onSearchChange: (Boolean) -> Unit,
+    onAttach: (List<android.net.Uri>) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onStop: () -> Unit,
+    onFeedback: (KinoMessage, String) -> Unit,
+    onProviderSettings: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
@@ -94,6 +124,11 @@ fun ChatScreen(
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Chat actions") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
+                                text = { Text("DeepSeek settings") },
+                                leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                                onClick = { menuOpen = false; onProviderSettings() },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Delete conversation") },
                                 leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
                                 onClick = { menuOpen = false; onDelete() },
@@ -103,7 +138,16 @@ fun ChatScreen(
                 },
             )
         },
-        bottomBar = { Composer(draft, { draft = it }, { if (draft.isNotBlank()) { onSend(draft); draft = "" } }) },
+        bottomBar = {
+            Composer(
+                value = draft, onChange = { draft = it },
+                onSend = { if (draft.isNotBlank() && !isBusy) { onSend(draft); draft = "" } },
+                models = models, selectedModel = selectedModel, thinkingEnabled = thinkingEnabled,
+                searchEnabled = searchEnabled, isBusy = isBusy, attachedFiles = attachedFiles, error = error,
+                onModelChange = onModelChange, onThinkingChange = onThinkingChange, onSearchChange = onSearchChange,
+                onAttach = onAttach, onRemoveAttachment = onRemoveAttachment, onStop = onStop,
+            )
+        },
         containerColor = MaterialTheme.colorScheme.background,
     ) { insets ->
         if (messages.isEmpty()) {
@@ -124,11 +168,29 @@ fun ChatScreen(
                     when (row) {
                         is TimelineRow.Message -> when (row.message.role) {
                             MessageRole.USER -> UserMessage(row.message.text)
-                            MessageRole.ASSISTANT -> AssistantMessage(row.message.text)
+                            MessageRole.ASSISTANT -> AssistantMessage(row.message.text) {
+                                onFeedback(row.message, it)
+                            }
                             MessageRole.TOOL -> Unit
                         }
                         is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails)
                     }
+                }
+                if (isBusy && liveThinking.isNotBlank()) item(key = "live-thinking") {
+                    ToolActivityBlock(listOf(KinoMessage(-1, "live", MessageRole.TOOL, "Thinking", 0, ToolActivity("thinking", "Working", liveThinking))), true)
+                }
+                if (isBusy) item(key = "live-response") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (liveText.isNotBlank()) AssistantMessage(liveText)
+                        liveSearch.forEachIndexed { index, detail ->
+                            ToolActivityBlock(listOf(KinoMessage(-2L - index, "live", MessageRole.TOOL, "Web search", 0, ToolActivity("search", "Working", detail))), true)
+                        }
+                        if (liveText.isBlank() && liveThinking.isBlank() && liveSearch.isEmpty()) Text("Thinking…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (contextTokens > 0) item(key = "context-usage") {
+                    val meter = if (contextLimit > 0) "$contextTokens / $contextLimit context tokens" else "$contextTokens context tokens"
+                    Text(meter, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -150,8 +212,14 @@ private fun UserMessage(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(text: String) {
-    Text(text, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp)
+private fun AssistantMessage(text: String, onFeedback: ((String) -> Unit)? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(text, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp)
+        if (onFeedback != null) Row {
+            IconButton(onClick = { onFeedback("LIKE") }, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.ThumbUpOffAlt, "Good response", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = { onFeedback("DISLIKE") }, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.ThumbDownOffAlt, "Bad response", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
 }
 
 private sealed interface TimelineRow {
@@ -229,7 +297,29 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean) {
 }
 
 @Composable
-private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Unit) {
+private fun Composer(
+    value: String,
+    onChange: (String) -> Unit,
+    onSend: () -> Unit,
+    models: List<ProviderModel>,
+    selectedModel: String,
+    thinkingEnabled: Boolean,
+    searchEnabled: Boolean,
+    isBusy: Boolean,
+    attachedFiles: List<Pair<String, String>>,
+    error: String?,
+    onModelChange: (String) -> Unit,
+    onThinkingChange: (Boolean) -> Unit,
+    onSearchChange: (Boolean) -> Unit,
+    onAttach: (List<android.net.Uri>) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onStop: () -> Unit,
+) {
+    val selected = models.firstOrNull { it.id == selectedModel }
+    var modelMenu by rememberSaveable { mutableStateOf(false) }
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) onAttach(uris)
+    }
     Column(
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
@@ -243,6 +333,17 @@ private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Un
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
         ) {
             Column(Modifier.padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 7.dp)) {
+                if (error != null) Text(error, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (attachedFiles.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    attachedFiles.forEach { (id, name) ->
+                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                IconButton(onClick = { onRemoveAttachment(id) }, modifier = Modifier.size(30.dp)) { Icon(Icons.Rounded.Close, "Remove $name", modifier = Modifier.size(15.dp)) }
+                            }
+                        }
+                    }
+                }
                 TextField(
                     value = value,
                     onValueChange = onChange,
@@ -261,13 +362,23 @@ private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Un
                     ),
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("DeepSeek", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box {
+                        Text(selected?.name ?: "DeepSeek", Modifier.clip(RoundedCornerShape(16.dp)).clickable { modelMenu = true }.padding(horizontal = 8.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name) }, onClick = { modelMenu = false; onModelChange(model.id) }) }
+                        }
+                    }
+                    if (selected?.supportsThinking == true) FilterChip(selected = thinkingEnabled, onClick = { onThinkingChange(!thinkingEnabled) }, label = { Text("Think") })
+                    if (selected?.supportsSearch == true) FilterChip(selected = searchEnabled, onClick = { onSearchChange(!searchEnabled) }, label = { Text("Search") })
                     Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { attachmentPicker.launch(arrayOf("*/*")) }, enabled = !isBusy, modifier = Modifier.size(38.dp)) {
+                        Icon(Icons.Rounded.AttachFile, "Attach file", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp))
+                    }
                     IconButton(
-                        onClick = onSend,
-                        enabled = value.isNotBlank(),
+                        onClick = if (isBusy) onStop else onSend,
+                        enabled = isBusy || value.isNotBlank(),
                         modifier = Modifier.size(38.dp).clip(CircleShape).background(if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
-                    ) { Icon(Icons.Rounded.ArrowUpward, "Send", tint = if (value.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp)) }
+                    ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = if (isBusy || value.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp)) }
                 }
             }
         }

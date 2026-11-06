@@ -14,6 +14,20 @@ data class KinoMessage(
     val text: String,
     val createdAt: Long,
     val tool: ToolActivity? = null,
+    val kind: String? = null,
+    val metadata: String? = null,
+    val tokenUsage: Long? = null,
+)
+
+data class ChatProviderState(
+    val chatId: String,
+    val provider: String = "deepseek",
+    val sessionId: String = "",
+    val parentMessageId: Long = 0,
+    val modelType: String = "instant",
+    val contextTokens: Long = 0,
+    val thinkingEnabled: Boolean = false,
+    val searchEnabled: Boolean = false,
 )
 
 enum class MessageRole {
