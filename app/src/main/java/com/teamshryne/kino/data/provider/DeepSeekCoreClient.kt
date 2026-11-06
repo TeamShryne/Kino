@@ -33,7 +33,7 @@ data class ProviderCapabilities(
     val thinkingContextLimit: Long,
 )
 
-data class ProviderSession(val id: String, val title: String, val pinned: Boolean, val updatedAt: Long, val modelType: String)
+data class ProviderSession(val id: String, val title: String, val pinned: Boolean, val updatedAt: Double, val modelType: String)
 
 class DeepSeekCoreClient(context: Context) : AutoCloseable {
     private val credentialStore = com.teamshryne.kino.data.security.DeepSeekCredentialStore(context)
@@ -102,7 +102,7 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
             .put("thinking_enabled", thinking)
             .put("search_enabled", search)
             .put("ref_file_ids", JSONArray(fileIds))
-            .put("source", "web")
+            .put("source", "default")
         val listener = object : EventListener {
             override fun isCancelled(): Boolean = cancelled.get()
             override fun onEvent(eventJSON: String) = onEvent(JSONObject(eventJSON))
@@ -114,7 +114,7 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
         JSONObject(core.history(credentialsJson(), sessionId))
     }
 
-    suspend fun sessions(limit: Int = 30, updatedAt: Long = 0): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun sessions(limit: Int = 30, updatedAt: Double = 0.0): JSONObject = withContext(Dispatchers.IO) {
         val request = JSONObject().put("limit", limit).put("updated_at", updatedAt).put("mode", "lte")
         JSONObject(core.sessions(credentialsJson(), request.toString()))
     }
@@ -127,7 +127,7 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
                 val rows = JSONObject(core.sessions(credentialJSON, request.toString())).optJSONArray("sessions") ?: JSONArray()
                 for (index in 0 until rows.length()) {
                     val row = rows.optJSONObject(index) ?: continue
-                    add(ProviderSession(row.optString("id"), row.optString("title", "DeepSeek chat"), row.optBoolean("pinned"), row.optLong("updated_at"), row.optString("model_type")))
+                    add(ProviderSession(row.optString("id"), row.optString("title", "DeepSeek chat"), row.optBoolean("pinned"), row.optDouble("updated_at"), row.optString("model_type")))
                 }
             }
         }.distinctBy { it.id }.sortedByDescending { it.updatedAt }
