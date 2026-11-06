@@ -76,6 +76,7 @@ import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.domain.model.ToolActivity
 import com.teamshryne.kino.ui.components.EmptyPanel
 import com.teamshryne.kino.data.provider.ProviderModel
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -168,7 +169,7 @@ fun ChatScreen(
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is TimelineRow.Message -> when (row.message.role) {
-                            MessageRole.USER -> UserMessage(row.message.text)
+                            MessageRole.USER -> UserMessage(row.message)
                             MessageRole.ASSISTANT -> AssistantMessage(row.message.text) {
                                 onFeedback(row.message, it)
                             }
@@ -199,16 +200,22 @@ fun ChatScreen(
 }
 
 @Composable
-private fun UserMessage(text: String) {
+private fun UserMessage(message: KinoMessage) {
+    val files = runCatching { JSONObject(message.metadata.orEmpty()).optJSONArray("files") }.getOrNull()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Text(
-            text,
+        Column(
             modifier = Modifier.fillMaxWidth(0.88f)
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 5.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 15.dp, vertical = 11.dp),
-            style = MaterialTheme.typography.bodyLarge,
-        )
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (files != null) for (index in 0 until files.length()) {
+                val file = files.optJSONObject(index) ?: continue
+                Text("📎 ${file.optString("name", "Attachment")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(message.text, style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }
 

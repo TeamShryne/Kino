@@ -140,7 +140,11 @@ class KinoViewModel(
             _providerError.value = "Could not load available DeepSeek models. Check your connection in Settings."
             return@launch
         }
-        conversations.sendUserMessage(chatId, body)
+        val filesForMessage = _attachedFiles.value.toList()
+        val userMetadata = if (filesForMessage.isEmpty()) null else JSONObject()
+            .put("files", JSONArray().apply { filesForMessage.forEach { (id, name) -> put(JSONObject().put("id", id).put("name", name)) } })
+            .toString()
+        conversations.sendUserMessage(chatId, body, userMetadata)
         _messages.value = conversations.messages(chatId)
         _chats.value = conversations.chats()
         val previous = conversations.providerState(chatId) ?: ChatProviderState(chatId = chatId, modelType = model.id)
@@ -174,7 +178,7 @@ class KinoViewModel(
                     prompt = body,
                     thinking = active.thinkingEnabled,
                     search = active.searchEnabled,
-                    fileIds = _attachedFiles.value.map { it.first },
+                    fileIds = filesForMessage.map { it.first },
                     cancelled = completionCancellation ?: AtomicBoolean(false),
                     onEvent = { event ->
                         when (event.optString("kind")) {
@@ -421,8 +425,13 @@ class KinoViewModel(
     }
 
     fun renameRemoteSession(session: ProviderSession, title: String) = viewModelScope.launch {
+        val localChat = conversations.chatForSession(session.id)
         runCatching { provider.updateSessionTitle(session.id, title) }
-            .onSuccess { refreshRemoteSessions() }
+            .onSuccess {
+                localChat?.let { conversations.renameChat(it, title) }
+                _chats.value = conversations.chats()
+                refreshRemoteSessions()
+            }
             .onFailure { _providerError.value = it.message?.take(240) ?: "Could not rename the DeepSeek session." }
     }
 

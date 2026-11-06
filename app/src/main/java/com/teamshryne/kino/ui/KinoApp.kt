@@ -72,7 +72,7 @@ fun KinoApp(model: KinoViewModel) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("Delete conversation?") },
-            text = { Text("This removes the chat and its saved messages from this device.") },
+            text = { Text("This deletes the conversation from DeepSeek and removes its saved messages from this device.") },
             confirmButton = {
                 TextButton(onClick = { model.deleteChat(id); deleteTarget = null }) { Text("Delete") }
             },

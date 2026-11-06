@@ -138,12 +138,13 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
         return id
     }
 
-    fun addUserMessage(chatId: String, text: String) {
+    fun addUserMessage(chatId: String, text: String, metadata: String? = null) {
         val db = writableDatabase
         val now = System.currentTimeMillis()
         db.beginTransaction()
         try {
             insertMessage(db, chatId, MessageRole.USER, text, now)
+            if (metadata != null) db.execSQL("UPDATE messages SET metadata=? WHERE id=last_insert_rowid()", arrayOf(metadata))
             db.rawQuery("SELECT title FROM chats WHERE id=?", arrayOf(chatId)).use { cursor ->
                 if (cursor.moveToFirst() && cursor.getString(0) == "New chat") {
                     val title = text.replace('\n', ' ').trim().take(48).ifBlank { "New chat" }
@@ -198,6 +199,11 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
     ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
 
     fun deleteChat(chatId: String): Int = writableDatabase.delete("chats", "id=?", arrayOf(chatId))
+
+    fun renameChat(chatId: String, title: String): Int = writableDatabase.update(
+        "chats", ContentValues().apply { put("title", title); put("updated_at", System.currentTimeMillis()) },
+        "id=?", arrayOf(chatId),
+    )
 
     private fun Cursor.toChat() = KinoChat(getString(0), getString(1), getLong(2), getString(3))
 
