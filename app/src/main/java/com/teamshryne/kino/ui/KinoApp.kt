@@ -139,7 +139,6 @@ fun KinoApp(model: KinoViewModel) {
             Box(Modifier.fillMaxSize().padding(insets)) {
                 if (tab == MainTab.Settings && settingsPage == "deepseek-login") DeepSeekLoginScreen(
                     connected = deepSeekConnected,
-                    onCredentials = model::saveDeepSeekCredentials,
                     onBack = { settingsPage = "provider" },
                 ) else if (tab == MainTab.Settings) SettingsScreen(
                     page = settingsPage,
