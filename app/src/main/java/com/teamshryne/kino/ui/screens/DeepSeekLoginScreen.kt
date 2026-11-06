@@ -3,6 +3,7 @@ package com.teamshryne.kino.ui.screens
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,9 +20,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -44,6 +47,7 @@ fun DeepSeekLoginScreen(
 ) {
     var showBrowser by rememberSaveable { mutableStateOf(false) }
     var captureMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var reloadKey by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
@@ -72,16 +76,18 @@ fun DeepSeekLoginScreen(
             }
         } else {
             Text("Sign in on the page below. Kino will show Connected when the session is ready.", modifier = Modifier.padding(horizontal = 18.dp, vertical = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp)) {
+                Text(captureMessage ?: "Sign in on the page below.", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { captureMessage = "Reloading DeepSeek…"; reloadKey++ }) { Text("Reload") }
+            }
             DeepSeekWebView(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                reloadKey = reloadKey,
                 onCapture = { credentials ->
                     captureMessage = if (onCredentials(credentials)) "Session captured and saved securely." else "Kino could not save this session securely. Go back and try again."
                 },
                 onStatus = { captureMessage = it },
             )
-            captureMessage?.let {
-                Text(it, modifier = Modifier.padding(horizontal = 18.dp, vertical = 5.dp), style = MaterialTheme.typography.bodySmall, color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             if (connected) {
                 Text("Connected to DeepSeek", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(16.dp))
             }
@@ -92,11 +98,13 @@ fun DeepSeekLoginScreen(
 @Composable
 private fun DeepSeekWebView(
     modifier: Modifier,
+    reloadKey: Int,
     onCapture: (DeepSeekCredentials) -> Unit,
     onStatus: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val delivered = remember { AtomicBoolean(false) }
+    val mainFrameFailed = remember { AtomicBoolean(false) }
     val captureLock = remember { Any() }
     val collected = remember { mutableMapOf<String, String>() }
     AndroidView(
@@ -111,8 +119,35 @@ private fun DeepSeekWebView(
                 settings.allowContentAccess = false
                 settings.javaScriptCanOpenWindowsAutomatically = false
                 settings.setSupportMultipleWindows(false)
+                // WebView's default user agent contains the `wv` marker, which
+                // causes some sign-in pages to serve an empty embedded-browser shell.
+                settings.userAgentString = settings.userAgentString.replace("; wv", "").replace("Version/4.0 ", "")
+                webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                        if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                            onStatus("DeepSeek loaded but a page script failed. Tap Reload or update Android System WebView.")
+                        }
+                        return true
+                    }
+                }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
+
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                        super.onReceivedError(view, request, error)
+                        if (request.isForMainFrame) {
+                            mainFrameFailed.set(true)
+                            onStatus("Could not load DeepSeek (WebView error ${error.errorCode}). Check your connection and tap Reload.")
+                        }
+                    }
+
+                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                        super.onReceivedHttpError(view, request, response)
+                        if (request.isForMainFrame && response.statusCode >= 400) {
+                            mainFrameFailed.set(true)
+                            onStatus("DeepSeek returned HTTP ${response.statusCode}. Tap Reload or try again later.")
+                        }
+                    }
 
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): android.webkit.WebResourceResponse? {
                         val url = request.url
@@ -146,15 +181,25 @@ private fun DeepSeekWebView(
 
                     override fun onPageFinished(view: WebView, url: String?) {
                         super.onPageFinished(view, url)
-                        if (url?.startsWith("https://chat.deepseek.com") == true && !delivered.get()) {
-                            onStatus("DeepSeek is open. Finish signing in, then wait for Kino to capture the session.")
+                        if (url?.startsWith("https://chat.deepseek.com") == true && !delivered.get() && !mainFrameFailed.get()) {
+                            onStatus("DeepSeek finished loading. If the page is blank, tap Reload; page errors will be shown here.")
                         }
                     }
                 }
                 loadUrl("https://chat.deepseek.com/")
             }
         },
-        update = { },
+        update = { webView ->
+            if (webView.tag != reloadKey) {
+                webView.tag = reloadKey
+                if (reloadKey > 0) {
+                    delivered.set(false)
+                    mainFrameFailed.set(false)
+                    synchronized(captureLock) { collected.clear() }
+                    webView.reload()
+                }
+            }
+        },
         onRelease = { webView -> webView.stopLoading(); webView.destroy() },
     )
 }
