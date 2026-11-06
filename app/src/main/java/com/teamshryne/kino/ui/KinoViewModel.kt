@@ -184,6 +184,10 @@ class KinoViewModel(
                         when (event.optString("kind")) {
                             "text_delta" -> _streamingText.update { it + event.optString("content") }
                             "thinking_delta" -> _streamingThinking.update { it + event.optString("content") }
+                            "fragment_delta" -> when (event.optString("fragment_type")) {
+                                "RESPONSE" -> _streamingText.update { it + event.optString("content") }
+                                "THINK" -> _streamingThinking.update { it + event.optString("content") }
+                            }
                             "usage" -> {
                                 _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
                             }

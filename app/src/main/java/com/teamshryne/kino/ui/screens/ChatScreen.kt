@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -31,10 +32,12 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.ThumbUpOffAlt
 import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.material.icons.rounded.Settings
@@ -59,6 +62,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -336,11 +340,11 @@ private fun Composer(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
         ) {
-            Column(Modifier.padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 7.dp)) {
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (error != null) Text(error, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (attachedFiles.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     attachedFiles.forEach { (id, name) ->
@@ -352,6 +356,43 @@ private fun Composer(
                         }
                     }
                 }
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Box {
+                        Surface(
+                            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { modelMenu = true },
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Row(Modifier.padding(start = 11.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(selected?.name ?: "DeepSeek", style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Rounded.ExpandMore, "Choose model", modifier = Modifier.size(17.dp))
+                            }
+                        }
+                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name) }, onClick = { modelMenu = false; onModelChange(model.id) }) }
+                        }
+                    }
+                    if (selected?.supportsThinking == true) {
+                        FilterChip(
+                            selected = thinkingEnabled,
+                            onClick = { onThinkingChange(!thinkingEnabled) },
+                            label = { Text("Think") },
+                            leadingIcon = { Icon(Icons.Rounded.Psychology, null, modifier = Modifier.size(17.dp)) },
+                        )
+                    }
+                    if (selected?.supportsSearch == true) {
+                        FilterChip(
+                            selected = searchEnabled,
+                            onClick = { onSearchChange(!searchEnabled) },
+                            label = { Text("Web search") },
+                            leadingIcon = { Icon(Icons.Rounded.TravelExplore, null, modifier = Modifier.size(17.dp)) },
+                        )
+                    }
+                }
                 TextField(
                     value = value,
                     onValueChange = onChange,
@@ -360,8 +401,8 @@ private fun Composer(
                     minLines = 1,
                     maxLines = 6,
                     textStyle = MaterialTheme.typography.bodyLarge,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
-                    keyboardActions = KeyboardActions(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { if (value.isNotBlank() && !isBusy) onSend() }),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
@@ -370,23 +411,16 @@ private fun Composer(
                     ),
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        Text(selected?.name ?: "DeepSeek", Modifier.clip(RoundedCornerShape(16.dp)).clickable { modelMenu = true }.padding(horizontal = 8.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
-                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name) }, onClick = { modelMenu = false; onModelChange(model.id) }) }
-                        }
-                    }
-                    if (selected?.supportsThinking == true) FilterChip(selected = thinkingEnabled, onClick = { onThinkingChange(!thinkingEnabled) }, label = { Text("Think") })
-                    if (selected?.supportsSearch == true) FilterChip(selected = searchEnabled, onClick = { onSearchChange(!searchEnabled) }, label = { Text("Search") })
-                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = { attachmentPicker.launch(arrayOf("*/*")) }, enabled = !isBusy, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.Rounded.AttachFile, "Attach file", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp))
                     }
+                    Text("Attach", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.weight(1f))
                     IconButton(
                         onClick = if (isBusy) onStop else onSend,
                         enabled = isBusy || value.isNotBlank(),
-                        modifier = Modifier.size(38.dp).clip(CircleShape).background(if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
-                    ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = if (isBusy || value.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp)) }
+                        modifier = Modifier.size(42.dp).clip(CircleShape).background(if (isBusy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
+                    ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = Color.White, modifier = Modifier.size(19.dp)) }
                 }
             }
         }

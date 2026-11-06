@@ -58,7 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/kino-core"
-          gh release download v0.1.3 \
+          gh release download v0.1.4 \
             --repo TeamShryne/kino-core \
             --pattern 'kino-core.aar*' \
             --dir "$RUNNER_TEMP/kino-core"
