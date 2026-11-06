@@ -70,6 +70,7 @@ fun ChatScreen(
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    val rows = remember(messages) { groupToolActivity(messages) }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -106,7 +107,6 @@ fun ChatScreen(
                 contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 20.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                val rows = remember(messages) { groupToolActivity(messages) }
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is TimelineRow.Message -> when (row.message.role) {

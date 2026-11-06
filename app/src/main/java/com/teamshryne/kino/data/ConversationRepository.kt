@@ -27,5 +27,8 @@ class LocalConversationRepository(private val database: KinoDatabase) : Conversa
     }
     override suspend fun appendAgentEvent(chatId: String, role: MessageRole, text: String, tool: ToolActivity?) =
         withContext(Dispatchers.IO) { database.addAgentMessage(chatId, role, text, tool) }
-    override suspend fun deleteChat(chatId: String) = withContext(Dispatchers.IO) { database.deleteChat(chatId) }
+    override suspend fun deleteChat(chatId: String) = withContext(Dispatchers.IO) {
+        database.deleteChat(chatId)
+        Unit
+    }
 }

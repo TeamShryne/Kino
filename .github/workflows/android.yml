@@ -33,6 +33,22 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Restore Gradle task output cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: gradle-build-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-build-${{ runner.os }}-
+
+      - name: Restore Gradle configuration cache
+        uses: actions/cache@v4
+        with:
+          path: .gradle/configuration-cache
+          key: gradle-config-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-config-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}-
+
       - name: Ensure Android SDK 35
         shell: bash
         run: |
@@ -45,7 +61,7 @@ jobs:
           fi
 
       - name: Build debug APK
-        run: gradle --build-cache --parallel :app:assembleDebug
+        run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -54,3 +70,29 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  prune-caches:
+    name: Prune old Actions caches
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Keep the 15 newest repository caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          mapfile -t stale_ids < <(
+            gh api --paginate "repos/${REPOSITORY}/actions/caches?per_page=100" \
+              --jq '.actions_caches[] | [.id, .created_at] | @tsv' \
+              | sort -k2,2r \
+              | awk 'NR > 15 { print $1 }'
+          )
+          for cache_id in "${stale_ids[@]}"; do
+            gh api --silent --method DELETE "repos/${REPOSITORY}/actions/caches/${cache_id}"
+          done

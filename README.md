@@ -10,7 +10,7 @@ Kino is an Android chat app for everyday conversations with a small amount of ag
 - Tool activity stored in the message timeline and shown in expandable cards
 - Settings pages for general behavior, appearance, chat activity, provider, storage, and app info
 - Light and dark palettes, with settings persisted on device
-- GitHub Actions builds and publishes a debug APK artifact
+- GitHub Actions builds and publishes a debug APK artifact, with Gradle output/configuration caches and automatic retention of the 15 newest Actions caches
 
 The first install includes a clearly labeled example conversation so the chat and tool activity UI has content to explore. It can be deleted like any other chat.
 
