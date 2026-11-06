@@ -3,12 +3,14 @@ package com.teamshryne.kino.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.padding
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -41,6 +43,15 @@ fun KinoApp(model: KinoViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var deleteTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedChat = chats.firstOrNull { it.id == activeChat }
+    // Keep in-app destinations above the Activity back action. Settings detail ->
+    // settings list -> chats; an open conversation -> chats.
+    BackHandler(enabled = activeChat != null || tab == MainTab.Settings) {
+        when {
+            activeChat != null -> model.closeChat()
+            settingsPage != null -> settingsPage = null
+            else -> tab = MainTab.Chats
+        }
+    }
 
     deleteTarget?.let { id ->
         AlertDialog(
@@ -54,35 +65,45 @@ fun KinoApp(model: KinoViewModel) {
         )
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        bottomBar = {
-            if (activeChat == null && settingsPage == null) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    MainTab.entries.forEach { item ->
-                        NavigationBarItem(
-                            selected = tab == item,
-                            onClick = { tab = item },
-                            icon = { Icon(if (item == MainTab.Chats) Icons.Rounded.AutoAwesome else Icons.Rounded.Settings, item.title) },
-                            label = { Text(item.title) },
-                        )
+    if (activeChat != null) {
+        ChatScreen(
+            title = selectedChat?.title ?: "New chat",
+            messages = messages,
+            showToolDetails = showToolDetails,
+            onBack = model::closeChat,
+            onDelete = { deleteTarget = activeChat },
+            onSend = model::send,
+        )
+    } else {
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            bottomBar = {
+                if (settingsPage == null) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                        MainTab.entries.forEach { item ->
+                            NavigationBarItem(
+                                selected = tab == item,
+                                onClick = { tab = item },
+                                icon = { Icon(if (item == MainTab.Chats) Icons.Rounded.AutoAwesome else Icons.Rounded.Settings, item.title) },
+                                label = { Text(item.title) },
+                            )
+                        }
                     }
                 }
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets)) {
-            when {
-                activeChat != null -> ChatScreen(
-                    title = selectedChat?.title ?: "New chat",
-                    messages = messages,
-                    showToolDetails = showToolDetails,
-                    onBack = model::closeChat,
-                    onDelete = { deleteTarget = activeChat },
-                    onSend = model::send,
-                )
-                tab == MainTab.Settings -> SettingsScreen(
+            },
+            floatingActionButton = {
+                if (tab == MainTab.Chats) {
+                    ExtendedFloatingActionButton(
+                        onClick = { model.newChat() },
+                        icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                        text = { Text("New chat") },
+                    )
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+        ) { insets ->
+            Box(Modifier.fillMaxSize().padding(insets)) {
+                if (tab == MainTab.Settings) SettingsScreen(
                     page = settingsPage,
                     dark = dark,
                     showToolDetails = showToolDetails,
@@ -90,14 +111,14 @@ fun KinoApp(model: KinoViewModel) {
                     onOpen = { settingsPage = it },
                     onThemeChange = model::setDarkTheme,
                     onToolDetailChange = model::setShowToolDetails,
-                )
-                else -> ChatsScreen(
+                ) else ChatsScreen(
                     chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
                     query = query,
                     onQuery = { query = it },
-                    onNew = { model.newChat() },
                     onOpen = model::openChat,
                     onDelete = { deleteTarget = it },
+                    onRefresh = model::refresh,
+                    onSettings = { tab = MainTab.Settings; settingsPage = null },
                 )
             }
         }

@@ -14,32 +14,48 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ArrowForwardIos
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import com.teamshryne.kino.ui.components.SettingHeading
-import com.teamshryne.kino.ui.components.SettingNote
-import com.teamshryne.kino.ui.components.SettingSwitch
+import androidx.compose.ui.unit.sp
 
-private data class SettingEntry(val id: String, val name: String, val description: String, val icon: ImageVector)
+private data class SettingEntry(val id: String, val title: String, val icon: ImageVector, val section: String)
+
+private val settingEntries = listOf(
+    SettingEntry("general", "General", Icons.Rounded.Tune, "APP"),
+    SettingEntry("appearance", "Appearance", Icons.Rounded.Palette, "APP"),
+    SettingEntry("chat", "Chat", Icons.Rounded.ChatBubbleOutline, "CHAT"),
+    SettingEntry("provider", "Provider", Icons.Rounded.SmartToy, "CHAT"),
+    SettingEntry("storage", "Data & storage", Icons.Rounded.Storage, "OTHER"),
+    SettingEntry("about", "About Kino", Icons.Rounded.Info, "OTHER"),
+)
 
 @Composable
 fun SettingsScreen(
@@ -51,78 +67,137 @@ fun SettingsScreen(
     onThemeChange: (Boolean) -> Unit,
     onToolDetailChange: (Boolean) -> Unit,
 ) {
-    val entries = listOf(
-        SettingEntry("general", "General", "App behavior and defaults", Icons.Rounded.Settings),
-        SettingEntry("appearance", "Appearance", "Theme and display", Icons.Rounded.Palette),
-        SettingEntry("chat", "Chat", "Messages and tool activity", Icons.Rounded.AutoAwesome),
-        SettingEntry("provider", "Provider", "DeepSeek connection", Icons.Rounded.SmartToy),
-        SettingEntry("storage", "Data & storage", "Local conversations", Icons.Rounded.Storage),
-        SettingEntry("about", "About Kino", "Version and credits", Icons.Rounded.Info),
-    )
+    var search by rememberSaveable { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 7.dp, end = 18.dp, top = 11.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 7.dp, end = 18.dp, top = 8.dp, bottom = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (page != null) IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
-            Column(Modifier.weight(1f)) {
-                Text(if (page == null) "Settings" else entries.firstOrNull { it.id == page }?.name ?: "Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                if (page == null) Text("Make Kino feel like yours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(
+                if (page == null) "Settings" else settingEntries.firstOrNull { it.id == page }?.title ?: "Settings",
+                style = if (page == null) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
         }
-        when (page) {
-            null -> LazyColumn(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(entries, key = { it.id }) { entry ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { onOpen(entry.id) },
-                        shape = RoundedCornerShape(17.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    ) {
-                        Row(Modifier.padding(horizontal = 15.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(21.dp))
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.name, style = MaterialTheme.typography.titleSmall)
-                                Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (page == null) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                placeholder = { Text("Search settings") },
+                singleLine = true,
+                shape = RoundedCornerShape(17.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            )
+            val visible = settingEntries.filter { it.title.contains(search, ignoreCase = true) }
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(13.dp),
+            ) {
+                visible.groupBy { it.section }.forEach { (section, entries) ->
+                    item(key = "section-$section") {
+                        Text(section, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 1.1.sp)
+                    }
+                    item(key = "group-$section") {
+                        Surface(
+                            shape = RoundedCornerShape(22.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ) {
+                            Column {
+                                entries.forEachIndexed { index, entry ->
+                                    SettingsEntryRow(entry, onOpen)
+                                    if (index < entries.lastIndex) HorizontalDivider(
+                                        Modifier.padding(start = 47.dp, end = 14.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                    )
+                                }
                             }
-                            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
-            "appearance" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("Theme")
-                SettingSwitch("Dark theme", "Use Kino in a darker palette", dark, onThemeChange)
-                SettingNote("System theme support and additional palettes can be added as Kino grows.")
+        } else {
+            SettingsDetail(
+                page = page,
+                dark = dark,
+                showToolDetails = showToolDetails,
+                onThemeChange = onThemeChange,
+                onToolDetailChange = onToolDetailChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsEntryRow(entry: SettingEntry, onOpen: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onOpen(entry.id) }.padding(horizontal = 15.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(entry.title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        Icon(Icons.Rounded.ArrowForwardIos, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+    }
+}
+
+@Composable
+private fun SettingsDetail(
+    page: String,
+    dark: Boolean,
+    showToolDetails: Boolean,
+    onThemeChange: (Boolean) -> Unit,
+    onToolDetailChange: (Boolean) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        when (page) {
+            "appearance" -> SettingSurface {
+                SettingToggle("Dark theme", dark, onThemeChange)
             }
-            "chat" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("Conversation")
-                SettingSwitch("Expand tool details", "Show tool activity details when opening a chat", showToolDetails, onToolDetailChange)
-                SettingNote("Tool calls are stored with their conversation and appear inline in the chat timeline.")
+            "chat" -> SettingSurface {
+                SettingToggle("Expand tool details", showToolDetails, onToolDetailChange)
             }
-            "provider" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("Chat provider")
-                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.SmartToy, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("DeepSeek", style = MaterialTheme.typography.titleSmall)
-                            Text("Connection setup is coming next", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                SettingNote("This screen is a placeholder. No sign-in or credential capture is implemented yet.")
+            "provider" -> SettingSurface {
+                SettingValue(Icons.Rounded.SmartToy, "DeepSeek", "Setup coming soon")
             }
-            "general" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("General")
-                SettingNote("Kino is a private chat space for quick conversations and lightweight agent work. Chats stay on this device.")
+            "storage" -> SettingSurface {
+                SettingValue(Icons.Rounded.Storage, "Conversation history", "On this device")
+                HorizontalDivider(Modifier.padding(start = 46.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                SettingValue(Icons.Rounded.FolderOpen, "Tool activity", "Saved with chats")
             }
-            "storage" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("On-device storage")
-                SettingNote("Kino saves conversations and tool activity in its local database. Clearing app data removes them.")
+            "general" -> SettingSurface {
+                SettingValue(Icons.Rounded.Tune, "Kino", "Version 0.1.0")
             }
-            "about" -> Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) {
-                SettingHeading("Kino 0.1.0")
-                SettingNote("An Android chat app by TeamShryne. Interface direction inspired by T3 Code Android by Shrawan-13.")
+            "about" -> SettingSurface {
+                SettingValue(Icons.Rounded.Info, "Kino", "TeamShryne")
             }
         }
+    }
+}
+
+@Composable
+private fun SettingSurface(content: @Composable () -> Unit) {
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(content = { content() })
+    }
+}
+
+@Composable
+private fun SettingToggle(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+@Composable
+private fun SettingValue(icon: ImageVector, title: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
