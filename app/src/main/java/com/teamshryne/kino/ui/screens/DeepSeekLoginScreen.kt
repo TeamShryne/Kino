@@ -143,7 +143,14 @@ private fun DeepSeekWebView(
 
                     override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
                         super.onReceivedHttpError(view, request, response)
-                        if (request.isForMainFrame && response.statusCode >= 400) {
+                        val headers = response.responseHeaders.orEmpty()
+                        val wafChallenge = headers.any { (name, value) ->
+                            name.equals("x-amzn-waf-action", ignoreCase = true) && value.equals("challenge", ignoreCase = true)
+                        }
+                        if (request.isForMainFrame && wafChallenge) {
+                            mainFrameFailed.set(true)
+                            onStatus("DeepSeek’s AWS security check challenged this embedded browser. Tap Reload; if it remains blank, update Android System WebView and try again.")
+                        } else if (request.isForMainFrame && response.statusCode >= 400) {
                             mainFrameFailed.set(true)
                             onStatus("DeepSeek returned HTTP ${response.statusCode}. Tap Reload or try again later.")
                         }
@@ -182,7 +189,7 @@ private fun DeepSeekWebView(
                     override fun onPageFinished(view: WebView, url: String?) {
                         super.onPageFinished(view, url)
                         if (url?.startsWith("https://chat.deepseek.com") == true && !delivered.get() && !mainFrameFailed.get()) {
-                            onStatus("DeepSeek finished loading. If the page is blank, tap Reload; page errors will be shown here.")
+                            onStatus("DeepSeek finished loading. If it is blank, its security check may not have completed; tap Reload.")
                         }
                     }
                 }
