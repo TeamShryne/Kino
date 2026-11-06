@@ -104,6 +104,7 @@ private fun DeepSeekWebView(
         factory = {
             CookieManager.getInstance().setAcceptCookie(true)
             WebView(context).apply {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = false
@@ -126,7 +127,7 @@ private fun DeepSeekWebView(
                             headers["x-hif-leim"]?.takeIf(String::isNotBlank)?.let { collected["hif_leim"] = it }
                             cookies["aws-waf-token"]?.takeIf(String::isNotBlank)?.let { collected["waf_token"] = it }
                             cookies["ds_session_id"]?.takeIf(String::isNotBlank)?.let { collected["ds_session_id"] = it }
-                            val required = listOf("token", "waf_token", "hif_dliq", "hif_leim")
+                            val required = listOf("token", "waf_token", "ds_session_id", "hif_dliq", "hif_leim")
                             if (!delivered.get() && required.all { !collected[it].isNullOrBlank() }) {
                                 delivered.set(true)
                                 val credential = DeepSeekCredentials(
