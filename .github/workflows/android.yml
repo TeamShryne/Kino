@@ -53,8 +53,20 @@ jobs:
             "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
           fi
 
+      - name: Download pinned Kino Core AAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kino-core"
+          gh release download v0.1.0 \
+            --repo TeamShryne/kino-core \
+            --pattern 'kino-core.aar*' \
+            --dir "$RUNNER_TEMP/kino-core"
+          cd "$RUNNER_TEMP/kino-core"
+          sha256sum --check kino-core.aar.sha256
+
       - name: Build debug APK
-        run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug
+        run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug -PkinoCoreAar="$RUNNER_TEMP/kino-core/kino-core.aar"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
