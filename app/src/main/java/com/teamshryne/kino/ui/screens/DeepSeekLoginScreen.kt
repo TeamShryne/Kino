@@ -1,10 +1,13 @@
 package com.teamshryne.kino.ui.screens
 
+import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,6 +57,8 @@ fun DeepSeekLoginScreen(
     var showBrowser by rememberSaveable { mutableStateOf(false) }
     var captureMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var reloadKey by rememberSaveable { mutableIntStateOf(0) }
+    var popupOpen by rememberSaveable { mutableStateOf(false) }
+    var popupCloseKey by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
@@ -95,13 +100,21 @@ fun DeepSeekLoginScreen(
                 Text(captureMessage ?: "Sign in on the page below.", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { captureMessage = "Reloading DeepSeek…"; reloadKey++ }) { Text("Reload") }
             }
+            if (popupOpen) {
+                TextButton(
+                    onClick = { popupCloseKey++; popupOpen = false },
+                    modifier = Modifier.align(Alignment.End).padding(end = 12.dp),
+                ) { Text("Close sign-in window") }
+            }
             DeepSeekWebView(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 reloadKey = reloadKey,
+                popupCloseKey = popupCloseKey,
                 onCapture = { credentials ->
                     captureMessage = if (onCredentials(credentials)) "Session captured and saved securely." else "Kino could not save this session securely. Go back and try again."
                 },
                 onStatus = { captureMessage = it },
+                onPopupChanged = { popupOpen = it },
             )
             if (connected) {
                 Text("Connected to DeepSeek", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(16.dp))
@@ -114,8 +127,10 @@ fun DeepSeekLoginScreen(
 private fun DeepSeekWebView(
     modifier: Modifier,
     reloadKey: Int,
+    popupCloseKey: Int,
     onCapture: (DeepSeekCredentials) -> Unit,
     onStatus: (String) -> Unit,
+    onPopupChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val delivered = remember { AtomicBoolean(false) }
@@ -126,27 +141,55 @@ private fun DeepSeekWebView(
         modifier = modifier,
         factory = {
             CookieManager.getInstance().setAcceptCookie(true)
-            WebView(context).apply {
-                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.javaScriptCanOpenWindowsAutomatically = false
-                settings.setSupportMultipleWindows(false)
+            val container = DeepSeekWebViewContainer(context)
+            val mainView = WebView(context)
+            container.mainView = mainView
+            container.addView(mainView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+            fun configure(webView: WebView) {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                webView.settings.javaScriptEnabled = true
+                webView.settings.domStorageEnabled = true
+                webView.settings.allowFileAccess = false
+                webView.settings.allowContentAccess = false
+                webView.settings.javaScriptCanOpenWindowsAutomatically = false
+                webView.settings.setSupportMultipleWindows(true)
                 // Keep WebView's system default user agent. Customizing it can
                 // make browser feature hints inconsistent with the real engine.
                 val version = WebView.getCurrentWebViewPackage()?.versionName ?: "unknown"
-                onStatus("Android System WebView $version · using the default user agent")
-                webChromeClient = object : WebChromeClient() {
+                onStatus("Android System WebView $version · default user agent · popup windows enabled")
+                webView.webChromeClient = object : WebChromeClient() {
                     override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
                         if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
                             onStatus("DeepSeek loaded but a page script failed. Tap Reload or update Android System WebView.")
                         }
                         return true
                     }
+
+                    override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message): Boolean {
+                        if (!isUserGesture || container.popupView != null) return false
+                        val popup = WebView(view.context)
+                        container.popupView = popup
+                        container.addView(popup, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                        configure(popup)
+                        val transport = resultMsg.obj as? WebView.WebViewTransport ?: run {
+                            container.closePopup()
+                            return false
+                        }
+                        transport.webView = popup
+                        resultMsg.sendToTarget()
+                        onPopupChanged(true)
+                        return true
+                    }
+
+                    override fun onCloseWindow(window: WebView) {
+                        if (window == container.popupView) {
+                            container.closePopup()
+                            onPopupChanged(false)
+                        }
+                    }
                 }
-                webViewClient = object : WebViewClient() {
+                webView.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
 
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
@@ -209,22 +252,56 @@ private fun DeepSeekWebView(
                         }
                     }
                 }
-                loadUrl("https://chat.deepseek.com/")
             }
+            configure(mainView)
+            mainView.loadUrl(DEEPSEEK_CHAT_URL)
+            container
         },
-        update = { webView ->
-            if (webView.tag != reloadKey) {
-                webView.tag = reloadKey
+        update = { container ->
+            if (container.lastReloadKey != reloadKey) {
+                container.lastReloadKey = reloadKey
                 if (reloadKey > 0) {
                     delivered.set(false)
                     mainFrameFailed.set(false)
                     synchronized(captureLock) { collected.clear() }
-                    webView.reload()
+                    container.closePopup()
+                    onPopupChanged(false)
+                    container.mainView?.reload()
                 }
             }
+            if (container.lastPopupCloseKey != popupCloseKey) {
+                container.lastPopupCloseKey = popupCloseKey
+                container.closePopup()
+            }
         },
-        onRelease = { webView -> webView.stopLoading(); webView.destroy() },
+        onRelease = { container -> container.destroyViews() },
     )
+}
+
+private class DeepSeekWebViewContainer(context: Context) : FrameLayout(context) {
+    var mainView: WebView? = null
+    var popupView: WebView? = null
+    var lastReloadKey: Int = -1
+    var lastPopupCloseKey: Int = 0
+
+    fun closePopup() {
+        popupView?.let { popup ->
+            removeView(popup)
+            popup.stopLoading()
+            popup.destroy()
+        }
+        popupView = null
+    }
+
+    fun destroyViews() {
+        closePopup()
+        mainView?.let { main ->
+            removeView(main)
+            main.stopLoading()
+            main.destroy()
+        }
+        mainView = null
+    }
 }
 
 private fun parseCookies(header: String): Map<String, String> = header.split(';').mapNotNull { part ->
