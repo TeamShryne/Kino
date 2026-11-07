@@ -409,6 +409,7 @@ private fun SearchSourceSheet(source: SearchSource) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
     value: String,
