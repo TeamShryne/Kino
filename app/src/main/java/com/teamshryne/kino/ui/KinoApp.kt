@@ -38,6 +38,7 @@ fun KinoApp(model: KinoViewModel) {
     val messages by model.messages.collectAsState()
     val dark by model.darkTheme.collectAsState()
     val showToolDetails by model.showToolDetails.collectAsState()
+    val tableCellMinWidth by model.tableCellMinWidth.collectAsState()
     val deepSeekConnected by model.deepSeekConnected.collectAsState()
     val capabilities by model.capabilities.collectAsState()
     val selectedModel by model.selectedModel.collectAsState()
@@ -84,6 +85,7 @@ fun KinoApp(model: KinoViewModel) {
             title = selectedChat?.title ?: "New chat",
             messages = messages,
             showToolDetails = showToolDetails,
+            tableCellMinWidth = tableCellMinWidth,
             onBack = model::closeChat,
             onDelete = { deleteTarget = activeChat },
             onSend = model::send,
@@ -142,10 +144,12 @@ fun KinoApp(model: KinoViewModel) {
                     page = settingsPage,
                     dark = dark,
                     showToolDetails = showToolDetails,
+                    tableCellMinWidth = tableCellMinWidth,
                     onBack = { settingsPage = null },
                     onOpen = { settingsPage = it },
                     onThemeChange = model::setDarkTheme,
                     onToolDetailChange = model::setShowToolDetails,
+                    onTableCellMinWidthChange = model::setTableCellMinWidth,
                     deepSeekConnected = deepSeekConnected,
                     models = capabilities?.models.orEmpty(),
                     selectedModel = selectedModel,

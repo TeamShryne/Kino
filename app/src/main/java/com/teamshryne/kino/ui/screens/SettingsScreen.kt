@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -68,10 +69,12 @@ fun SettingsScreen(
     page: String?,
     dark: Boolean,
     showToolDetails: Boolean,
+    tableCellMinWidth: Int,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     onThemeChange: (Boolean) -> Unit,
     onToolDetailChange: (Boolean) -> Unit,
+    onTableCellMinWidthChange: (Int) -> Unit,
     deepSeekConnected: Boolean,
     models: List<ProviderModel>,
     selectedModel: String,
@@ -148,8 +151,10 @@ fun SettingsScreen(
                 page = page,
                 dark = dark,
                 showToolDetails = showToolDetails,
+                tableCellMinWidth = tableCellMinWidth,
                 onThemeChange = onThemeChange,
                 onToolDetailChange = onToolDetailChange,
+                onTableCellMinWidthChange = onTableCellMinWidthChange,
                 deepSeekConnected = deepSeekConnected,
                 models = models,
                 selectedModel = selectedModel,
@@ -192,8 +197,10 @@ private fun SettingsDetail(
     page: String,
     dark: Boolean,
     showToolDetails: Boolean,
+    tableCellMinWidth: Int,
     onThemeChange: (Boolean) -> Unit,
     onToolDetailChange: (Boolean) -> Unit,
+    onTableCellMinWidthChange: (Int) -> Unit,
     deepSeekConnected: Boolean,
     models: List<ProviderModel>,
     selectedModel: String,
@@ -220,7 +227,23 @@ private fun SettingsDetail(
                 SettingToggle("Dark theme", dark, onThemeChange)
             }
             "chat" -> SettingSurface {
-                SettingToggle("Expand tool details", showToolDetails, onToolDetailChange)
+                Column {
+                    SettingToggle("Expand tool details", showToolDetails, onToolDetailChange)
+                    HorizontalDivider(Modifier.padding(horizontal = 15.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Minimum table cell width", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                            Text("${tableCellMinWidth} dp", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("Wider cells can scroll horizontally.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(
+                            value = tableCellMinWidth.toFloat(),
+                            onValueChange = { onTableCellMinWidthChange(it.toInt()) },
+                            valueRange = 64f..240f,
+                            steps = 21,
+                        )
+                    }
+                }
             }
             "provider" -> ProviderSettings(
                 deepSeekConnected, models, selectedModel, thinkingEnabled, searchEnabled, providerError, providerBusy,

@@ -53,6 +53,8 @@ class KinoViewModel(
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
     private val _showToolDetails = MutableStateFlow(preferences.getBoolean("tool_details", true))
     val showToolDetails: StateFlow<Boolean> = _showToolDetails.asStateFlow()
+    private val _tableCellMinWidth = MutableStateFlow(preferences.getInt("table_cell_min_width", 112).coerceIn(64, 240))
+    val tableCellMinWidth: StateFlow<Int> = _tableCellMinWidth.asStateFlow()
     private val _deepSeekConnected = MutableStateFlow(credentialStore.load() != null)
     val deepSeekConnected: StateFlow<Boolean> = _deepSeekConnected.asStateFlow()
     private val _capabilities = MutableStateFlow<ProviderCapabilities?>(null)
@@ -619,6 +621,12 @@ class KinoViewModel(
     fun setShowToolDetails(enabled: Boolean) {
         preferences.edit().putBoolean("tool_details", enabled).apply()
         _showToolDetails.value = enabled
+    }
+
+    fun setTableCellMinWidth(widthDp: Int) {
+        val width = widthDp.coerceIn(64, 240)
+        preferences.edit().putInt("table_cell_min_width", width).apply()
+        _tableCellMinWidth.value = width
     }
 
     override fun onCleared() {

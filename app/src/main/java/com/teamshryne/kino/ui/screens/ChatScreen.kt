@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -86,21 +87,24 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalConfiguration
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.domain.model.SearchSource
 import com.teamshryne.kino.domain.model.SearchSourceCodec
 import com.teamshryne.kino.domain.model.ToolActivity
 import com.teamshryne.kino.ui.components.MarkdownText
+import com.teamshryne.kino.ui.components.StreamingMarkdownText
 import com.teamshryne.kino.ui.components.EmptyPanel
 import com.teamshryne.kino.data.provider.ProviderModel
 import org.json.JSONObject
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,6 +112,7 @@ fun ChatScreen(
     title: String,
     messages: List<KinoMessage>,
     showToolDetails: Boolean,
+    tableCellMinWidth: Int,
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onSend: (String) -> Unit,
@@ -136,21 +141,28 @@ fun ChatScreen(
     val rows = remember(messages) { groupToolActivity(messages) }
     val listState = rememberLazyListState()
     var followBottom by remember { mutableStateOf(true) }
-    val streamRevision = liveText.length + liveTools.sumOf { it.tool?.detail?.length ?: 0 }
+    // Follow rendered-line batches instead of every incoming token; this keeps
+    // rapid provider chunks from repeatedly restarting the list animation.
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val approximateCharsPerLine = ((screenWidthDp - 64) / 8).coerceAtLeast(24)
+    val streamLineRevision = liveText.length / approximateCharsPerLine + liveText.count { it == '\n' }
+    val streamRevision = streamLineRevision + liveTools.sumOf { it.tool?.detail?.length ?: 0 } / 64
     val latestStreamRevision by rememberUpdatedState(streamRevision)
 
     LaunchedEffect(listState) {
         snapshotFlow {
             val layout = listState.layoutInfo
-            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
-            layout.totalItemsCount == 0 || lastVisible >= layout.totalItemsCount - 2
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()
+            layout.totalItemsCount == 0 || (
+                lastVisible != null && lastVisible.index == layout.totalItemsCount - 1 &&
+                    lastVisible.offset + lastVisible.size <= layout.viewportEndOffset + 72
+                )
         }.distinctUntilChanged().collect { followBottom = it }
     }
     LaunchedEffect(messages) {
         if (messages.isNotEmpty()) {
             withFrameNanos { }
-            val last = listState.layoutInfo.totalItemsCount - 1
-            if (last >= 0) listState.scrollToItem(last)
+            listState.jumpToBottom()
             followBottom = true
         }
     }
@@ -158,10 +170,11 @@ fun ChatScreen(
         if (isBusy) {
             snapshotFlow { latestStreamRevision }
                 .distinctUntilChanged()
-                .sample(100)
+                .sample(160)
                 .collect {
-                    val last = listState.layoutInfo.totalItemsCount - 1
-                    if (followBottom && last >= 0) listState.animateScrollToItem(last)
+                    if (followBottom) supervisorScope {
+                        launch { listState.animateToBottom() }.join()
+                    }
                 }
         }
     }
@@ -225,20 +238,20 @@ fun ChatScreen(
                     when (row) {
                         is TimelineRow.Message -> when (row.message.role) {
                             MessageRole.USER -> UserMessage(row.message)
-                            MessageRole.ASSISTANT -> AssistantMessage(row.message.text)
+                            MessageRole.ASSISTANT -> AssistantMessage(row.message.text, tableCellMinWidth = tableCellMinWidth)
                             MessageRole.TOOL -> Unit
                         }
-                        is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails) { selectedSource = it }
+                        is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth) { selectedSource = it }
                     }
                 }
                 liveTools.forEach { activity ->
                     item(key = "live-tool-${activity.id}") {
-                        ToolActivityBlock(listOf(activity), showToolDetails) { selectedSource = it }
+                        ToolActivityBlock(listOf(activity), showToolDetails, tableCellMinWidth) { selectedSource = it }
                     }
                 }
                 if (isBusy) item(key = "live-response") {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (liveText.isNotBlank()) AssistantMessage(liveText)
+                        if (liveText.isNotBlank()) AssistantMessage(liveText, streaming = true, tableCellMinWidth = tableCellMinWidth)
                         if (liveText.isBlank() && liveTools.isEmpty()) Text("Thinking…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -255,9 +268,29 @@ fun ChatScreen(
             onDismissRequest = { selectedSource = null },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            SearchSourceSheet(source)
+            SearchSourceSheet(source, tableCellMinWidth)
         }
     }
+}
+
+private suspend fun LazyListState.jumpToBottom() {
+    val lastIndex = layoutInfo.totalItemsCount - 1
+    if (lastIndex < 0) return
+    scrollToItem(lastIndex)
+    withFrameNanos { }
+    val last = layoutInfo.visibleItemsInfo.lastOrNull() ?: return
+    val remaining = (last.offset + last.size - layoutInfo.viewportEndOffset).coerceAtLeast(0)
+    if (remaining > 0) scroll { scrollBy(remaining.toFloat()) }
+}
+
+private suspend fun LazyListState.animateToBottom() {
+    val lastIndex = layoutInfo.totalItemsCount - 1
+    if (lastIndex < 0) return
+    if (layoutInfo.visibleItemsInfo.lastOrNull()?.index != lastIndex) animateScrollToItem(lastIndex)
+    withFrameNanos { }
+    val last = layoutInfo.visibleItemsInfo.lastOrNull()?.takeIf { it.index == lastIndex } ?: return
+    val remaining = (last.offset + last.size - layoutInfo.viewportEndOffset).coerceAtLeast(0)
+    if (remaining > 0) animateScrollBy(remaining.toFloat())
 }
 
 @Composable
@@ -281,9 +314,10 @@ private fun UserMessage(message: KinoMessage) {
 }
 
 @Composable
-private fun AssistantMessage(text: String) {
+private fun AssistantMessage(text: String, streaming: Boolean = false, tableCellMinWidth: Int = 112) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        MarkdownText(text)
+        if (streaming) StreamingMarkdownText(text, tableCellMinWidth)
+        else MarkdownText(text, tableCellMinWidthDp = tableCellMinWidth)
     }
 }
 
@@ -308,7 +342,7 @@ private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, onSourceClick: (SearchSource) -> Unit) {
+private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, tableCellMinWidth: Int, onSourceClick: (SearchSource) -> Unit) {
     var expanded by rememberSaveable(items.first().id) { mutableStateOf(showDetails) }
     LaunchedEffect(showDetails) { expanded = showDetails }
     val heading = if (items.size == 1) items.first().text else "Worked through ${items.size} steps"
@@ -358,7 +392,7 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, on
                             }
                         } else if (!message.tool?.detail.isNullOrBlank()) {
                             Spacer(Modifier.height(3.dp))
-                            Text(message.tool?.detail.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 17.sp)
+                            MarkdownText(message.tool?.detail.orEmpty(), tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
@@ -386,7 +420,7 @@ private fun SearchSourceChip(source: SearchSource, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SearchSourceSheet(source: SearchSource) {
+private fun SearchSourceSheet(source: SearchSource, tableCellMinWidth: Int) {
     val uriHandler = LocalUriHandler.current
     Column(
         Modifier.fillMaxWidth().fillMaxHeight(0.88f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -404,7 +438,7 @@ private fun SearchSourceSheet(source: SearchSource) {
         }
         Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
         val body = source.content.ifBlank { source.snippet }
-        if (body.isNotBlank()) MarkdownText(body)
+        if (body.isNotBlank()) MarkdownText(body, tableCellMinWidthDp = tableCellMinWidth)
         else Text("The search response did not include page text for this link.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
