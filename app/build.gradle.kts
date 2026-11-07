@@ -46,15 +46,6 @@ android {
 }
 
 dependencies {
-    // CI downloads a pinned gomobile artifact; keeping it out of source control
-    // keeps the Android repository small and makes core upgrades explicit.
-    providers.gradleProperty("kinoCoreAar").orNull?.let { aarPath ->
-        implementation(files(aarPath))
-    }
-    providers.gradleProperty("ironpressAar").orNull?.let { aarPath ->
-        implementation(files(aarPath))
-    }
-
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.browser:browser:1.8.0")

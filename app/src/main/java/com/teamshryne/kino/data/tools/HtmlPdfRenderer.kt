@@ -2,6 +2,7 @@ package com.teamshryne.kino.data.tools
 
 import android.content.Context
 import com.teamshryne.ironpress.IronpressConverter
+import com.teamshryne.kino.data.libraries.RuntimeLibraries
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -12,6 +13,7 @@ import java.util.UUID
 /** Creates a paginated PDF with the native Ironpress renderer. */
 class HtmlPdfRenderer(private val context: Context) {
     suspend fun create(title: String, input: String): String = withContext(Dispatchers.IO) {
+        RuntimeLibraries(context).loadIronpress()
         require(input.isNotBlank()) { "HTML content is empty." }
         require(input.length <= LocalToolRegistry.MAX_HTML_CHARS) { "HTML is too large to render." }
         val directory = File(context.filesDir, "pdf-exports").apply { mkdirs() }

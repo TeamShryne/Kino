@@ -52,6 +52,12 @@ fun KinoApp(model: KinoViewModel) {
     val contextTokens by model.contextTokens.collectAsState()
     val attachedFiles by model.attachedFiles.collectAsState()
     val remoteSessions by model.remoteSessions.collectAsState()
+    val libraryStates by model.libraries.collectAsState()
+    val libraryBusy by model.libraryBusy.collectAsState()
+    val libraryProgress by model.libraryProgress.collectAsState()
+    val libraryError by model.libraryError.collectAsState()
+    val firstRunCorePrompt by model.firstRunCorePrompt.collectAsState()
+    val pdfLibraryPrompt by model.pdfLibraryPrompt.collectAsState()
     var tab by rememberSaveable { mutableStateOf(MainTab.Chats) }
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -79,6 +85,21 @@ fun KinoApp(model: KinoViewModel) {
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
         )
     }
+
+    if (firstRunCorePrompt) AlertDialog(
+        onDismissRequest = model::dismissCorePrompt,
+        title = { Text("Install Kino Core") },
+        text = { Text("Kino Core is needed for chat, search, and file support. It will download once and stay in this app’s private storage.") },
+        confirmButton = { TextButton(onClick = { model.installLibrary("kino-core") }) { Text(if (libraryBusy == "kino-core") "Installing…" else "Install") } },
+        dismissButton = { TextButton(onClick = model::dismissCorePrompt) { Text("Later") } },
+    )
+    if (pdfLibraryPrompt) AlertDialog(
+        onDismissRequest = model::dismissPdfPrompt,
+        title = { Text("Install PDF renderer") },
+        text = { Text("This agent needs the IronPress library to create PDFs. Download it now from the library catalog?") },
+        confirmButton = { TextButton(onClick = { model.installLibrary("ironpress-pdf") }) { Text(if (libraryBusy == "ironpress-pdf") "Installing…" else "Install") } },
+        dismissButton = { TextButton(onClick = { model.dismissPdfPrompt() }) { Text("Later") } },
+    )
 
     if (activeChat != null) {
         ChatScreen(
@@ -169,6 +190,12 @@ fun KinoApp(model: KinoViewModel) {
                     onPinRemoteSession = model::pinRemoteSession,
                     onDeleteRemoteSession = model::deleteRemoteSession,
                     onRenameRemoteSession = model::renameRemoteSession,
+                    libraryStates = libraryStates,
+                    libraryBusy = libraryBusy,
+                    libraryProgress = libraryProgress,
+                    libraryError = libraryError,
+                    onInstallLibrary = model::installLibrary,
+                    onRefreshLibraries = model::refreshLibraries,
                 ) else ChatsScreen(
                     chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
                     query = query,

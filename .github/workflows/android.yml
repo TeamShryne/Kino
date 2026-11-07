@@ -53,30 +53,6 @@ jobs:
             "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
           fi
 
-      - name: Download pinned Kino Core AAR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/kino-core"
-          gh release download v0.1.5 \
-            --repo TeamShryne/kino-core \
-            --pattern 'kino-core.aar*' \
-            --dir "$RUNNER_TEMP/kino-core"
-          cd "$RUNNER_TEMP/kino-core"
-          sha256sum --check kino-core.aar.sha256
-
-      - name: Download pinned Ironpress Android AAR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/ironpress"
-          gh release download android-v1.7.0.1 \
-            --repo TeamShryne/ironpress-android \
-            --pattern 'ironpress-android.aar*' \
-            --dir "$RUNNER_TEMP/ironpress"
-          cd "$RUNNER_TEMP/ironpress"
-          sha256sum --check ironpress-android.aar.sha256
-
       - name: Configure persistent debug signing
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.KINO_ANDROID_DEBUG_KEYSTORE_BASE64 }}
@@ -95,8 +71,8 @@ jobs:
             echo "ANDROID_DEBUG_KEY_ALIAS=$ANDROID_DEBUG_KEY_ALIAS"
           } >> "$GITHUB_ENV"
 
-      - name: Build debug APK
-        run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug -PkinoCoreAar="$RUNNER_TEMP/kino-core/kino-core.aar" -PironpressAar="$RUNNER_TEMP/ironpress/ironpress-android.aar"
+      - name: Build debug APK (PR check)
+        run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v7

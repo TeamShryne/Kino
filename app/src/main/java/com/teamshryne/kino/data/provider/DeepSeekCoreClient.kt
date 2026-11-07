@@ -1,9 +1,8 @@
 package com.teamshryne.kino.data.provider
 
 import android.content.Context
-import com.teamshryne.kinocore.mobile.EventListener
-import com.teamshryne.kinocore.mobile.Mobile
-import com.teamshryne.kinocore.mobile.MobileCore
+import com.teamshryne.kino.data.libraries.RuntimeLibraries
+import java.lang.reflect.Proxy
 import com.teamshryne.kino.data.security.DeepSeekCredentials
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,10 +36,21 @@ data class ProviderSession(val id: String, val title: String, val pinned: Boolea
 
 class DeepSeekCoreClient(context: Context) : AutoCloseable {
     private val credentialStore = com.teamshryne.kino.data.security.DeepSeekCredentialStore(context)
-    private val core: MobileCore = Mobile.newMobileCore()
+    private val libraries = RuntimeLibraries(context)
+    private val core: Any by lazy {
+        val loader = libraries.coreClassLoader()
+        loader.loadClass("com.teamshryne.kinocore.mobile.Mobile").getMethod("newMobileCore").invoke(null)
+    }
+    private fun call(name: String, vararg args: Any?): Any? {
+        val method = core.javaClass.methods.firstOrNull { it.name == name && it.parameterTypes.size == args.size }
+            ?: error("Kino Core is missing the $name operation. Update Kino Core in Libraries.")
+        return try { method.invoke(core, *args) } catch (error: java.lang.reflect.InvocationTargetException) { throw error.cause ?: error }
+    }
+    private fun stringCall(name: String, vararg args: Any?): String = call(name, *args) as? String ?: ""
+
 
     suspend fun capabilities(): ProviderCapabilities = withContext(Dispatchers.IO) {
-        val result = JSONObject(core.capabilities(credentialsJson(), credentialStore.deviceId()))
+        val result = JSONObject(stringCall("capabilities", credentialsJson(), credentialStore.deviceId()))
         val modelArray = result.optJSONArray("models") ?: JSONArray()
         val models = buildList {
             for (index in 0 until modelArray.length()) {
@@ -78,7 +88,7 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
     }
 
     suspend fun createSession(): JSONObject = withContext(Dispatchers.IO) {
-        JSONObject(core.createSession(credentialsJson()))
+        JSONObject(stringCall("createSession", credentialsJson()))
     }
 
     suspend fun complete(
@@ -103,20 +113,26 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
             .put("search_enabled", search)
             .put("ref_file_ids", JSONArray(fileIds))
             .put("source", "default")
-        val listener = object : EventListener {
-            override fun isCancelled(): Boolean = cancelled.get()
-            override fun onEvent(eventJSON: String) = onEvent(JSONObject(eventJSON))
+        val loader = core.javaClass.classLoader!!
+        val listenerType = loader.loadClass("com.teamshryne.kinocore.mobile.EventListener")
+        val listener = Proxy.newProxyInstance(loader, arrayOf(listenerType)) { _, method, args ->
+            when (method.name) {
+                "isCancelled" -> cancelled.get()
+                "onEvent" -> { onEvent(JSONObject(args?.firstOrNull() as? String ?: "{}")); null }
+                "toString" -> "KinoEventListener"
+                else -> null
+            }
         }
-        JSONObject(core.complete(credentialsJson(), request.toString(), listener))
+        JSONObject(stringCall("complete", credentialsJson(), request.toString(), listener))
     }
 
     suspend fun history(sessionId: String): JSONObject = withContext(Dispatchers.IO) {
-        JSONObject(core.history(credentialsJson(), sessionId))
+        JSONObject(stringCall("history", credentialsJson(), sessionId))
     }
 
     suspend fun sessions(limit: Int = 30, updatedAt: Double = 0.0): JSONObject = withContext(Dispatchers.IO) {
         val request = JSONObject().put("limit", limit).put("updated_at", updatedAt).put("mode", "lte")
-        JSONObject(core.sessions(credentialsJson(), request.toString()))
+        JSONObject(stringCall("sessions", credentialsJson(), request.toString()))
     }
 
     suspend fun remoteSessions(limit: Int = 50): List<ProviderSession> = withContext(Dispatchers.IO) {
@@ -124,7 +140,7 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
         buildList {
             for (pinned in listOf(false, true)) {
                 val request = JSONObject().put("limit", limit).put("mode", "lte").put("pinned", pinned)
-                val rows = JSONObject(core.sessions(credentialJSON, request.toString())).optJSONArray("sessions") ?: JSONArray()
+                val rows = JSONObject(stringCall("sessions", credentialJSON, request.toString())).optJSONArray("sessions") ?: JSONArray()
                 for (index in 0 until rows.length()) {
                     val row = rows.optJSONObject(index) ?: continue
                     add(ProviderSession(row.optString("id"), row.optString("title", "DeepSeek chat"), row.optBoolean("pinned"), row.optDouble("updated_at"), row.optString("model_type")))
@@ -134,28 +150,28 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
     }
 
     suspend fun updateSessionTitle(sessionId: String, title: String) = withContext(Dispatchers.IO) {
-        core.updateSessionTitle(credentialsJson(), sessionId, title)
+        call("updateSessionTitle", credentialsJson(), sessionId, title)
     }
 
     suspend fun deleteSessions(ids: List<String>) = withContext(Dispatchers.IO) {
-        core.deleteSessions(credentialsJson(), JSONArray(ids).toString())
+        call("deleteSessions", credentialsJson(), JSONArray(ids).toString())
     }
 
     suspend fun setPinned(ids: List<String>, pinned: Boolean) = withContext(Dispatchers.IO) {
-        core.setSessionsPinned(credentialsJson(), JSONArray(ids).toString(), pinned)
+        call("setSessionsPinned", credentialsJson(), JSONArray(ids).toString(), pinned)
     }
 
     suspend fun uploadFile(path: String): JSONObject = withContext(Dispatchers.IO) {
-        JSONObject(core.uploadFile(credentialsJson(), path))
+        JSONObject(stringCall("uploadFile", credentialsJson(), path))
     }
 
     suspend fun fetchFiles(ids: List<String>): JSONArray = withContext(Dispatchers.IO) {
-        JSONArray(core.fetchFiles(credentialsJson(), JSONArray(ids).toString()))
+        JSONArray(stringCall("fetchFiles", credentialsJson(), JSONArray(ids).toString()))
     }
 
     suspend fun submitFeedback(sessionId: String, messageId: Long, type: String, description: String = "") = withContext(Dispatchers.IO) {
         val payload = JSONObject().put("session_id", sessionId).put("message_id", messageId).put("type", type).put("description", description)
-        core.submitFeedback(credentialsJson(), payload.toString())
+        call("submitFeedback", credentialsJson(), payload.toString())
     }
 
     fun credentialStore() = credentialStore
@@ -165,6 +181,6 @@ class DeepSeekCoreClient(context: Context) : AutoCloseable {
     }.toCoreJson()
 
     override fun close() {
-        runCatching { core.close() }
+        runCatching { call("close") }
     }
 }
