@@ -17,6 +17,8 @@ import com.teamshryne.kino.domain.model.ChatProviderState
 import com.teamshryne.kino.domain.model.KinoChat
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
+import com.teamshryne.kino.domain.model.SearchSource
+import com.teamshryne.kino.domain.model.SearchSourceCodec
 import com.teamshryne.kino.domain.model.ToolActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,10 +71,10 @@ class KinoViewModel(
     val searchEnabled: StateFlow<Boolean> = _searchEnabled.asStateFlow()
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
-    private val _streamingThinking = MutableStateFlow("")
-    val streamingThinking: StateFlow<String> = _streamingThinking.asStateFlow()
-    private val _streamingSearch = MutableStateFlow<List<String>>(emptyList())
-    val streamingSearch: StateFlow<List<String>> = _streamingSearch.asStateFlow()
+    private val _streamingTools = MutableStateFlow<List<KinoMessage>>(emptyList())
+    val streamingTools: StateFlow<List<KinoMessage>> = _streamingTools.asStateFlow()
+    private var nextLiveToolId = -10L
+    private var liveSearchToolId: Long? = null
     private val _contextTokens = MutableStateFlow(0L)
     val contextTokens: StateFlow<Long> = _contextTokens.asStateFlow()
     private val _remoteSessions = MutableStateFlow<List<ProviderSession>>(emptyList())
@@ -104,6 +106,120 @@ class KinoViewModel(
             _searchEnabled.value = state?.searchEnabled ?: false
             _contextTokens.value = state?.contextTokens ?: loaded.lastOrNull { it.tokenUsage != null }?.tokenUsage ?: 0
             state?.modelType?.let { _selectedModel.value = it }
+        }
+    }
+
+    private fun startThinkingTool(chatId: String) {
+        val message = KinoMessage(
+            id = nextLiveToolId--,
+            chatId = chatId,
+            role = MessageRole.TOOL,
+            text = "Thinking",
+            createdAt = System.currentTimeMillis(),
+            tool = ToolActivity("thinking", "Working", ""),
+            kind = "thinking",
+        )
+        _streamingTools.update { it + message }
+    }
+
+    private fun appendThinkingTool(chatId: String, content: String) {
+        if (content.isEmpty()) return
+        _streamingTools.update { current ->
+            val last = current.lastOrNull()
+            val activity = last?.tool
+            if (last != null && activity?.name == "thinking") {
+                current.dropLast(1) + last.copy(tool = activity.copy(detail = activity.detail + content))
+            } else {
+                current + KinoMessage(
+                    id = nextLiveToolId--,
+                    chatId = chatId,
+                    role = MessageRole.TOOL,
+                    text = "Thinking",
+                    createdAt = System.currentTimeMillis(),
+                    tool = ToolActivity("thinking", "Working", content),
+                    kind = "thinking",
+                )
+            }
+        }
+    }
+
+    private fun handleProviderFragment(chatId: String, fragment: JSONObject?) {
+        if (fragment == null) return
+        when (fragment.optString("type").uppercase()) {
+            "TOOL_SEARCH" -> {
+                startSearchTool(chatId)
+                addSearchSources(chatId, SearchSourceCodec.fromFragment(fragment))
+            }
+            "TOOL_OPEN" -> {
+                ensureSearchTool(chatId)
+                SearchSourceCodec.fromOpenFragment(fragment)?.copy(content = "")?.let { mergeOpenedPage(chatId, it) }
+            }
+            "SEARCH" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(fragment))
+        }
+    }
+
+    private fun startSearchTool(chatId: String) {
+        val message = KinoMessage(
+            id = nextLiveToolId--,
+            chatId = chatId,
+            role = MessageRole.TOOL,
+            text = "Web search",
+            createdAt = System.currentTimeMillis(),
+            tool = ToolActivity("search", "Working", SearchSourceCodec.encode(emptyList())),
+            kind = "search",
+        )
+        liveSearchToolId = message.id
+        _streamingTools.update { it + message }
+    }
+
+    private fun ensureSearchTool(chatId: String) {
+        val id = liveSearchToolId
+        if (id == null || _streamingTools.value.none { it.id == id }) startSearchTool(chatId)
+    }
+
+    private fun addSearchSources(chatId: String, incoming: List<SearchSource>) {
+        ensureSearchTool(chatId)
+        if (incoming.isEmpty()) return
+        val id = liveSearchToolId ?: return
+        _streamingTools.update { current ->
+            current.map { message ->
+                if (message.id != id) message
+                else {
+                    val detail = SearchSourceCodec.encode(
+                        SearchSourceCodec.merge(SearchSourceCodec.decode(message.tool?.detail.orEmpty()), incoming),
+                    )
+                    message.copy(tool = message.tool?.copy(detail = detail))
+                }
+            }
+        }
+    }
+
+    private fun mergeOpenedPage(chatId: String, page: SearchSource) {
+        ensureSearchTool(chatId)
+        val id = liveSearchToolId ?: return
+        _streamingTools.update { current ->
+            current.map { message ->
+                if (message.id != id) message
+                else {
+                    val sources = SearchSourceCodec.mergeOpen(SearchSourceCodec.decode(message.tool?.detail.orEmpty()), page)
+                    message.copy(tool = message.tool?.copy(detail = SearchSourceCodec.encode(sources)))
+                }
+            }
+        }
+    }
+
+    private fun appendOpenedPageContent(chatId: String, content: String) {
+        if (content.isEmpty()) return
+        ensureSearchTool(chatId)
+        val id = liveSearchToolId ?: return
+        _streamingTools.update { current ->
+            current.map { message ->
+                if (message.id != id) message
+                else {
+                    val sources = SearchSourceCodec.appendLastContent(SearchSourceCodec.decode(message.tool?.detail.orEmpty()), content)
+                    message.copy(tool = message.tool?.copy(detail = SearchSourceCodec.encode(sources)))
+                }
+            }
         }
     }
 
@@ -159,8 +275,9 @@ class KinoViewModel(
         _isStreaming.value = true
         _providerError.value = null
         _streamingText.value = ""
-        _streamingThinking.value = ""
-        _streamingSearch.value = emptyList()
+        _streamingTools.value = emptyList()
+        nextLiveToolId = -10L
+        liveSearchToolId = null
         completionJob = viewModelScope.launch {
             var session = active.sessionId
             var parent = active.parentMessageId
@@ -183,47 +300,21 @@ class KinoViewModel(
                     onEvent = { event ->
                         when (event.optString("kind")) {
                             "text_delta" -> _streamingText.update { it + event.optString("content") }
-                            "thinking_delta" -> _streamingThinking.update { it + event.optString("content") }
+                            "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") {
+                                startThinkingTool(chatId)
+                            }
+                            "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
                             "fragment_delta" -> when (event.optString("fragment_type")) {
                                 "RESPONSE" -> _streamingText.update { it + event.optString("content") }
-                                "THINK" -> _streamingThinking.update { it + event.optString("content") }
+                                "THINK" -> appendThinkingTool(chatId, event.optString("content"))
+                                "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
                             }
+                            "fragment" -> handleProviderFragment(chatId, event.optJSONObject("fragment"))
                             "usage" -> {
                                 _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
                             }
-                            "search_fragment", "search_update" -> {
-                                val fragment = event.optJSONObject("fragment")
-                                val raw = event.opt("raw")
-                                val detail = buildString {
-                                    fragment?.optJSONArray("queries")?.let { queries ->
-                                        for (i in 0 until queries.length()) append("Search: ").append(queries.optJSONObject(i)?.optString("query")).append('\n')
-                                    }
-                                    fragment?.optJSONArray("results")?.let { results ->
-                                        for (i in 0 until results.length()) {
-                                            val item = results.optJSONObject(i) ?: continue
-                                            append(item.optString("title", item.optString("url"))).append('\n')
-                                            if (item.has("url")) append(item.optString("url")).append('\n')
-                                        }
-                                    }
-                                    val rawResults = when (raw) {
-                                        is JSONArray -> raw
-                                        is JSONObject -> raw.optJSONArray("results") ?: raw.optJSONArray("queries")
-                                        else -> null
-                                    }
-                                    rawResults?.let { results ->
-                                        for (i in 0 until results.length()) {
-                                            val item = results.optJSONObject(i) ?: continue
-                                            append(item.optString("title", item.optString("query", item.optString("url")))).append('\n')
-                                            if (item.has("url")) append(item.optString("url")).append('\n')
-                                            if (item.has("snippet")) append(item.optString("snippet")).append('\n')
-                                        }
-                                    }
-                                    if (isEmpty()) append(event.optString("content", "Searching the web"))
-                                }.trim()
-                                if (detail.isNotBlank()) {
-                                    _streamingSearch.update { it + detail }
-                                }
-                            }
+                            "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
+                            "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
                         }
                     },
                 )
@@ -231,12 +322,16 @@ class KinoViewModel(
                 parent = result.optLong("response_message_id", parent)
                 usage = result.optLong("accumulated_token_usage", usage)
                 val answer = _streamingText.value
-                val thinking = _streamingThinking.value
-                if (thinking.isNotBlank()) {
-                    conversations.appendAgentEvent(chatId, MessageRole.TOOL, "Thinking", ToolActivity("thinking", "Done", thinking), "thinking")
-                }
-                _streamingSearch.value.forEach { detail ->
-                    conversations.appendAgentEvent(chatId, MessageRole.TOOL, "Web search", ToolActivity("search", "Done", detail), "search")
+                _streamingTools.value.forEach { toolMessage ->
+                    toolMessage.tool?.let { tool ->
+                        conversations.appendAgentEvent(
+                            chatId,
+                            MessageRole.TOOL,
+                            toolMessage.text,
+                            tool.copy(status = "Done"),
+                            tool.name,
+                        )
+                    }
                 }
                 if (answer.isNotBlank()) {
                     val metadata = JSONObject().put("session_id", session).put("message_id", parent).toString()
@@ -257,11 +352,10 @@ class KinoViewModel(
             } finally {
                 if (_activeChat.value == chatId) _messages.value = conversations.messages(chatId)
                 _chats.value = conversations.chats()
+                _streamingTools.value = emptyList()
                 _providerBusy.value = false
                 _isStreaming.value = false
                 _streamingText.value = ""
-                _streamingThinking.value = ""
-                _streamingSearch.value = emptyList()
                 completionCancellation = null
             }
         }
@@ -378,27 +472,43 @@ class KinoViewModel(
                     val role = message.optString("role").uppercase()
                     val fragments = message.optJSONArray("fragments") ?: JSONArray()
                     val response = StringBuilder()
-                    val thinking = StringBuilder()
-                    val searches = mutableListOf<String>()
+                    val activities = mutableListOf<ToolActivity>()
+                    var lastSearchIndex = -1
                     for (fragmentIndex in 0 until fragments.length()) {
                         val fragment = fragments.optJSONObject(fragmentIndex) ?: continue
                         when (fragment.optString("type").uppercase()) {
                             "RESPONSE" -> response.append(fragment.optString("content"))
-                            "THINK" -> thinking.append(fragment.optString("content"))
-                            "SEARCH" -> {
-                                val detail = buildString {
-                                    fragment.optJSONArray("queries")?.let { qs -> for (i in 0 until qs.length()) append("Search: ").append(qs.optJSONObject(i)?.optString("query")).append('\n') }
-                                    fragment.optJSONArray("results")?.let { rs -> for (i in 0 until rs.length()) rs.optJSONObject(i)?.let { append(it.optString("title", it.optString("url"))).append('\n').append(it.optString("url")) } }
-                                }.trim()
-                                if (detail.isNotBlank()) searches += detail
+                            "THINK" -> activities += ToolActivity("thinking", "Done", fragment.optString("content"))
+                            "SEARCH", "TOOL_SEARCH" -> {
+                                if (activities.lastOrNull()?.name != "search") {
+                                    activities += ToolActivity("search", "Done", SearchSourceCodec.encode(emptyList()))
+                                }
+                                lastSearchIndex = activities.lastIndex
+                                val sources = SearchSourceCodec.merge(
+                                    SearchSourceCodec.decode(activities[lastSearchIndex].detail),
+                                    SearchSourceCodec.fromFragment(fragment),
+                                )
+                                activities[lastSearchIndex] = activities[lastSearchIndex].copy(detail = SearchSourceCodec.encode(sources))
+                            }
+                            "TOOL_OPEN" -> {
+                                if (lastSearchIndex < 0) {
+                                    activities += ToolActivity("search", "Done", SearchSourceCodec.encode(emptyList()))
+                                    lastSearchIndex = activities.lastIndex
+                                }
+                                SearchSourceCodec.fromOpenFragment(fragment)?.let { page ->
+                                    val sources = SearchSourceCodec.mergeOpen(SearchSourceCodec.decode(activities[lastSearchIndex].detail), page)
+                                    activities[lastSearchIndex] = activities[lastSearchIndex].copy(detail = SearchSourceCodec.encode(sources))
+                                }
                             }
                         }
                     }
                     when (role) {
                         "USER" -> if (response.isNotBlank()) conversations.sendUserMessage(localId, response.toString())
                         "ASSISTANT" -> {
-                            if (thinking.isNotBlank()) conversations.appendAgentEvent(localId, MessageRole.TOOL, "Thinking", ToolActivity("thinking", "Done", thinking.toString()), "thinking")
-                            searches.forEach { detail -> conversations.appendAgentEvent(localId, MessageRole.TOOL, "Web search", ToolActivity("search", "Done", detail), "search") }
+                            activities.forEach { activity ->
+                                val label = if (activity.name == "search") "Web search" else "Thinking"
+                                conversations.appendAgentEvent(localId, MessageRole.TOOL, label, activity, activity.name)
+                            }
                             if (response.isNotBlank()) {
                                 val metadata = JSONObject().put("session_id", remote.id).put("message_id", messageId).toString()
                                 conversations.appendAgentEvent(localId, MessageRole.ASSISTANT, response.toString(), kind = "response", metadata = metadata, tokenUsage = message.optLong("accumulated_token_usage"))

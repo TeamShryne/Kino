@@ -47,8 +47,7 @@ fun KinoApp(model: KinoViewModel) {
     val providerBusy by model.providerBusy.collectAsState()
     val isStreaming by model.isStreaming.collectAsState()
     val streamingText by model.streamingText.collectAsState()
-    val streamingThinking by model.streamingThinking.collectAsState()
-    val streamingSearch by model.streamingSearch.collectAsState()
+    val streamingTools by model.streamingTools.collectAsState()
     val contextTokens by model.contextTokens.collectAsState()
     val attachedFiles by model.attachedFiles.collectAsState()
     val remoteSessions by model.remoteSessions.collectAsState()
@@ -96,8 +95,7 @@ fun KinoApp(model: KinoViewModel) {
             contextLimit = if (thinkingEnabled) capabilities?.thinkingContextLimit ?: 0 else capabilities?.normalContextLimit ?: 0,
             isBusy = isStreaming,
             liveText = streamingText,
-            liveThinking = streamingThinking,
-            liveSearch = streamingSearch,
+            liveTools = streamingTools,
             error = providerError,
             attachedFiles = attachedFiles,
             onModelChange = model::setSelectedModel,
@@ -106,7 +104,6 @@ fun KinoApp(model: KinoViewModel) {
             onAttach = model::attachFiles,
             onRemoveAttachment = model::removeAttachment,
             onStop = model::stopGeneration,
-            onFeedback = model::submitFeedback,
             onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
         )
     } else {
