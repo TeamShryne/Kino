@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.teamshryne.kino.data.ConversationRepository
 import com.teamshryne.kino.data.LocalConversationRepository
 import com.teamshryne.kino.data.local.KinoDatabase
+import com.teamshryne.kino.data.libraries.RuntimeLibraries
+import com.teamshryne.kino.data.libraries.LibraryState
 import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
@@ -45,7 +47,20 @@ class KinoViewModel(
         LocalConversationRepository(KinoDatabase(application)),
     )
     private val preferences = application.getSharedPreferences("kino-settings", 0)
+    private val libraryManager = RuntimeLibraries(application)
     private val provider = DeepSeekCoreClient(application)
+    private val _libraries = MutableStateFlow<List<LibraryState>>(emptyList())
+    val libraries: StateFlow<List<LibraryState>> = _libraries.asStateFlow()
+    private val _libraryBusy = MutableStateFlow<String?>(null)
+    val libraryBusy: StateFlow<String?> = _libraryBusy.asStateFlow()
+    private val _libraryProgress = MutableStateFlow(0f)
+    val libraryProgress: StateFlow<Float> = _libraryProgress.asStateFlow()
+    private val _libraryError = MutableStateFlow<String?>(null)
+    val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
+    private val _firstRunCorePrompt = MutableStateFlow(!preferences.getBoolean("core_prompt_seen", false))
+    val firstRunCorePrompt: StateFlow<Boolean> = _firstRunCorePrompt.asStateFlow()
+    private val _pdfLibraryPrompt = MutableStateFlow(false)
+    val pdfLibraryPrompt: StateFlow<Boolean> = _pdfLibraryPrompt.asStateFlow()
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
@@ -96,11 +111,41 @@ class KinoViewModel(
 
     init {
         refresh()
-        if (_deepSeekConnected.value) {
-            refreshCapabilities()
-            refreshRemoteSessions()
-        }
+        refreshLibraries()
     }
+
+    private fun coreReady(): Boolean = _libraries.value.any { it.library.id == "kino-core" && it.installed }
+
+    fun refreshLibraries() = viewModelScope.launch {
+        try {
+            _libraries.value = libraryManager.catalog().map(libraryManager::state)
+            _libraryError.value = null
+            val core = _libraries.value.firstOrNull { it.library.id == "kino-core" }
+            if (core?.installed == true) {
+                if (!_firstRunCorePrompt.value) preferences.edit().putBoolean("core_prompt_seen", true).apply()
+                else dismissCorePrompt()
+                if (_deepSeekConnected.value) { refreshCapabilities(); refreshRemoteSessions() }
+            } else if (core?.installedVersion != null) {
+                _firstRunCorePrompt.value = true
+            }
+        } catch (error: Exception) { _libraryError.value = error.message?.take(240) ?: "Could not load available libraries." }
+    }
+
+    fun installLibrary(id: String) = viewModelScope.launch {
+        val item = _libraries.value.firstOrNull { it.library.id == id }?.library ?: run { _libraryError.value = "Library is not in the catalog."; return@launch }
+        if (_libraryBusy.value != null) return@launch
+        _libraryBusy.value = id; _libraryProgress.value = 0f; _libraryError.value = null
+        try {
+            libraryManager.install(item) { received, total -> _libraryProgress.value = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f }
+            refreshLibraries()
+            if (id == "kino-core") dismissCorePrompt()
+            if (id == "ironpress-pdf") _pdfLibraryPrompt.value = false
+        } catch (error: Exception) { _libraryError.value = error.message?.take(300) ?: "Library installation failed." }
+        finally { _libraryBusy.value = null; _libraryProgress.value = 0f }
+    }
+
+    fun dismissCorePrompt() { preferences.edit().putBoolean("core_prompt_seen", true).apply(); _firstRunCorePrompt.value = false }
+    fun dismissPdfPrompt() { _pdfLibraryPrompt.value = false }
 
     fun refresh() = viewModelScope.launch {
         _chats.value = conversations.chats()
@@ -273,6 +318,11 @@ class KinoViewModel(
     fun send(text: String) = viewModelScope.launch {
         val body = text.trim()
         if (body.isEmpty()) return@launch
+        if (!coreReady()) {
+            _firstRunCorePrompt.value = true
+            _providerError.value = "Install Kino Core from Settings > Libraries before chatting."
+            return@launch
+        }
         if (credentialStore.load() == null) {
             _providerError.value = "Connect DeepSeek in Settings before sending a message."
             return@launch
@@ -408,6 +458,7 @@ class KinoViewModel(
                         toolRegistry.execute(chatId, call.name, call.arguments)
                     } catch (error: Exception) {
                         if (completionCancellation?.get() == true) throw error
+                        if (call.name == "html_to_pdf" && error.message?.contains("Install the PDF renderer", true) == true) _pdfLibraryPrompt.value = true
                         val reason = error.message?.take(500) ?: "Tool failed."
                         finishLocalTool(liveId, "Failed", reason)
                         null
@@ -541,7 +592,7 @@ class KinoViewModel(
     }
 
     fun refreshCapabilities() = viewModelScope.launch {
-        if (credentialStore.load() == null) return@launch
+        if (!coreReady() || credentialStore.load() == null) return@launch
         _providerBusy.value = true
         try {
             val loaded = provider.capabilities()
@@ -556,7 +607,7 @@ class KinoViewModel(
     }
 
     fun refreshRemoteSessions() = viewModelScope.launch {
-        if (credentialStore.load() == null) return@launch
+        if (!coreReady() || credentialStore.load() == null) return@launch
         _providerBusy.value = true
         try {
             _remoteSessions.value = provider.remoteSessions()

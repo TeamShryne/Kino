@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.data.provider.ProviderModel
 import com.teamshryne.kino.data.provider.ProviderSession
+import com.teamshryne.kino.data.libraries.LibraryState
 
 private data class SettingEntry(val id: String, val title: String, val icon: ImageVector, val section: String)
 
@@ -61,6 +62,7 @@ private val settingEntries = listOf(
     SettingEntry("chat", "Chat", Icons.Rounded.ChatBubbleOutline, "CHAT"),
     SettingEntry("provider", "Provider", Icons.Rounded.SmartToy, "CHAT"),
     SettingEntry("storage", "Data & storage", Icons.Rounded.Storage, "OTHER"),
+    SettingEntry("libraries", "Libraries", Icons.Rounded.Storage, "OTHER"),
     SettingEntry("about", "About Kino", Icons.Rounded.Info, "OTHER"),
 )
 
@@ -94,6 +96,12 @@ fun SettingsScreen(
     onPinRemoteSession: (ProviderSession, Boolean) -> Unit,
     onDeleteRemoteSession: (ProviderSession) -> Unit,
     onRenameRemoteSession: (ProviderSession, String) -> Unit,
+    libraryStates: List<LibraryState>,
+    libraryBusy: String?,
+    libraryProgress: Float,
+    libraryError: String?,
+    onInstallLibrary: (String) -> Unit,
+    onRefreshLibraries: () -> Unit,
 ) {
     var search by rememberSaveable { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
@@ -174,6 +182,12 @@ fun SettingsScreen(
                 onPinRemoteSession = onPinRemoteSession,
                 onDeleteRemoteSession = onDeleteRemoteSession,
                 onRenameRemoteSession = onRenameRemoteSession,
+                libraryStates = libraryStates,
+                libraryBusy = libraryBusy,
+                libraryProgress = libraryProgress,
+                libraryError = libraryError,
+                onInstallLibrary = onInstallLibrary,
+                onRefreshLibraries = onRefreshLibraries,
             )
         }
     }
@@ -220,6 +234,12 @@ private fun SettingsDetail(
     onPinRemoteSession: (ProviderSession, Boolean) -> Unit,
     onDeleteRemoteSession: (ProviderSession) -> Unit,
     onRenameRemoteSession: (ProviderSession, String) -> Unit,
+    libraryStates: List<LibraryState>,
+    libraryBusy: String?,
+    libraryProgress: Float,
+    libraryError: String?,
+    onInstallLibrary: (String) -> Unit,
+    onRefreshLibraries: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (page) {
@@ -251,6 +271,7 @@ private fun SettingsDetail(
                 remoteSessions, onRefreshSessions, onOpenRemoteSession, onPinRemoteSession, onDeleteRemoteSession,
                 onRenameRemoteSession,
             )
+            "libraries" -> LibrariesSettings(libraryStates, libraryBusy, libraryProgress, libraryError, onInstallLibrary, onRefreshLibraries)
             "storage" -> SettingSurface {
                 SettingValue(Icons.Rounded.Storage, "Conversation history", "On this device")
                 HorizontalDivider(Modifier.padding(start = 46.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
@@ -263,6 +284,27 @@ private fun SettingsDetail(
                 SettingValue(Icons.Rounded.Info, "Kino", "TeamShryne")
             }
         }
+    }
+}
+
+@Composable
+private fun LibrariesSettings(states: List<LibraryState>, busy: String?, progress: Float, error: String?, onInstall: (String) -> Unit, onRefresh: () -> Unit) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+        item { Text("Libraries are downloaded to private app storage and verified before installation.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (error != null) item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (states.isEmpty()) item { Text("Loading library catalog…", style = MaterialTheme.typography.bodyMedium) }
+        items(states, key = { it.library.id }) { item ->
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(item.library.name, style = MaterialTheme.typography.titleMedium)
+                    Text(item.library.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (item.installed) "Installed · ${item.installedVersion}" else "Version ${item.library.version} · ${item.artifact?.let { "${it.size / (1024 * 1024)} MB · ${it.abi}" } ?: "Unavailable for this device"}", style = MaterialTheme.typography.bodySmall)
+                    if (busy == item.library.id) androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.Button(onClick = { onInstall(item.library.id) }, enabled = item.artifact != null && busy == null && !item.installed) { Text(if (busy == item.library.id) "Installing…" else if (item.installed) "Installed" else "Download and install") }
+                }
+            }
+        }
+        item { TextButton(onClick = onRefresh) { Text("Refresh catalog") } }
     }
 }
 
