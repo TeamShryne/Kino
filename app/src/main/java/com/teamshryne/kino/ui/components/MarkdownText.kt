@@ -29,7 +29,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
             .usePlugin(TablePlugin.create(context))
             .usePlugin(TaskListPlugin.create(context))
             .usePlugin(HtmlPlugin.create())
-            .usePlugin(ImagesPlugin.create(context))
+            .usePlugin(ImagesPlugin.create())
             .build()
     }
     val colorInt = color.toArgb()
