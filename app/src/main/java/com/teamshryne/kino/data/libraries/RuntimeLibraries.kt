@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 private const val CATALOG_URL = "https://raw.githubusercontent.com/TeamShryne/kino-libraries/main/libraries.json"
 private val supportedAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -58,7 +59,7 @@ class RuntimeLibraries(private val context: Context) {
     suspend fun install(library: RuntimeLibrary, progress: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
         require(library.id in setOf("kino-core", "ironpress-pdf")) { "Unknown runtime library." }
         require(library.nativeLibrary.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid native library name." }
-        require(library.format == if (library.id == "kino-core") "gomobile-runtime-zip-v1" else "jni-runtime-zip-v1") { "Unsupported runtime package format." }
+        require(library.format == if (library.id == "kino-core") "gomobile-dex-runtime-zip-v1" else "jni-runtime-zip-v1") { "Unsupported runtime package format." }
         require(library.artifacts.map { it.abi }.distinct().size == library.artifacts.size) { "Duplicate ABI packages in catalog." }
         val artifact = state(library).artifact ?: error("${library.name} is not available for this device (${abi.ifBlank { "unknown ABI" }}).")
         require(artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/")) { "Library URL is not trusted." }
@@ -92,6 +93,9 @@ class RuntimeLibraries(private val context: Context) {
                 }
             }
             require(File(folder, library.nativeLibrary).isFile && (library.classesFile == null || File(folder, library.classesFile).isFile)) { "Library archive is missing required files." }
+            if (library.id == "kino-core") ZipFile(File(folder, requireNotNull(library.classesFile))).use { jar ->
+                require(jar.getEntry("classes.dex") != null) { "Kino Core package has no Android DEX bytecode." }
+            }
             listOf(library.nativeLibrary, library.classesFile).filterNotNull().forEach { File(folder, it).setReadOnly() }
             prefs.edit().putString("${library.id}.version", library.version).apply()
             archive.delete()
