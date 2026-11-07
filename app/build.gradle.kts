@@ -51,6 +51,9 @@ dependencies {
     providers.gradleProperty("kinoCoreAar").orNull?.let { aarPath ->
         implementation(files(aarPath))
     }
+    providers.gradleProperty("ironpressAar").orNull?.let { aarPath ->
+        implementation(files(aarPath))
+    }
 
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.core:core-ktx:1.13.1")

@@ -324,6 +324,7 @@ class KinoViewModel(
                 var toolCalls = 0
                 while (true) {
                     val turnText = StringBuilder()
+                    var responseFragmentText: String? = null
                     var pendingToolName: String? = null
                     var pendingToolId: Long? = null
                     fun updateTurnText() {
@@ -335,6 +336,11 @@ class KinoViewModel(
                             }
                             _streamingText.value = ToolCallProtocol.visibleText(snapshot)
                         }
+                    }
+                    fun captureResponse(content: String) {
+                        val remaining = ToolCallProtocol.MAX_RESPONSE_CHARS - turnText.length
+                        if (remaining > 0) turnText.append(content.take(remaining))
+                        updateTurnText()
                     }
                     val result = provider.complete(
                         sessionId = session,
@@ -348,20 +354,25 @@ class KinoViewModel(
                         onEvent = { event ->
                             when (event.optString("kind")) {
                                 "text_delta" -> {
-                                    turnText.append(event.optString("content"))
-                                    updateTurnText()
+                                    captureResponse(event.optString("content"))
                                 }
                                 "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") startThinkingTool(chatId)
                                 "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
                                 "fragment_delta" -> when (event.optString("fragment_type")) {
                                     "RESPONSE" -> {
-                                        turnText.append(event.optString("content"))
-                                        updateTurnText()
+                                        captureResponse(event.optString("content"))
                                     }
                                     "THINK" -> appendThinkingTool(chatId, event.optString("content"))
                                     "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
                                 }
-                                "fragment" -> handleProviderFragment(chatId, event.optJSONObject("fragment"))
+                                "fragment" -> {
+                                    val fragment = event.optJSONObject("fragment")
+                                    if (fragment?.optString("type")?.uppercase() == "RESPONSE") {
+                                        responseFragmentText = fragment.optString("content").take(ToolCallProtocol.MAX_RESPONSE_CHARS)
+                                    } else {
+                                        handleProviderFragment(chatId, fragment)
+                                    }
+                                }
                                 "usage" -> _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
                                 "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
                                 "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
@@ -373,7 +384,10 @@ class KinoViewModel(
                     usage = result.optLong("accumulated_token_usage", usage)
                     toolProtocolVersion = 1
                     conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
-                    val rawTurn = turnText.toString()
+                    val streamedText = turnText.toString()
+                    val rawTurn = responseFragmentText
+                        ?.takeIf { streamedText.isBlank() || it.startsWith(streamedText) }
+                        ?: streamedText
                     val call = ToolCallProtocol.parse(rawTurn)
                     if (call == null) {
                         pendingToolId?.let { finishLocalTool(it, "Failed", "The model returned an invalid tool request.") }

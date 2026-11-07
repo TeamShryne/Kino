@@ -11,7 +11,8 @@ object ToolCallProtocol {
     private const val CONTRACT_CLOSE = "[[/KINO_TOOL_CONTRACT_V1]]"
     private const val RESULT_OPEN = "[[KINO_TOOL_RESULT_V1]]"
     private const val RESULT_CLOSE = "[[/KINO_TOOL_RESULT_V1]]"
-    private const val MAX_CALL_JSON_CHARS = 850_000
+    const val MAX_RESPONSE_CHARS = 1_400_000
+    private const val MAX_CALL_JSON_CHARS = MAX_RESPONSE_CHARS
 
     val firstTurnInstructions = """
         Kino has local tools. Use one only when it materially helps answer the user's request. Never invent a result.
@@ -37,7 +38,11 @@ object ToolCallProtocol {
 
     fun visibleText(raw: String): String {
         val callAt = raw.indexOf(OPEN)
-        if (callAt >= 0) return raw.substring(0, callAt)
+        if (callAt >= 0) {
+            val prefix = raw.substring(0, callAt)
+            return if (prefix.trim().matches(Regex("(?s)(```(?:json)?\\s*)?"))) "" else prefix
+        }
+        if (peekName(raw) != null) return ""
         val maxPossible = minOf(OPEN.length - 1, raw.length)
         for (length in maxPossible downTo 1) {
             if (raw.endsWith(OPEN.take(length))) return raw.dropLast(length)
@@ -47,23 +52,83 @@ object ToolCallProtocol {
 
     fun peekName(raw: String): String? {
         val text = raw.trimStart()
-        if (!text.startsWith(OPEN)) return null
-        val match = Regex("^\\s*\\{\\s*\"name\"\\s*:\\s*\"([a-z_]+)\"").find(text.substring(OPEN.length))
+        val markerAt = text.indexOf(OPEN)
+        val source = if (markerAt >= 0) text.substring(markerAt + OPEN.length) else text
+        val jsonStart = source.indexOf('{')
+        if (jsonStart < 0) return null
+        val match = Regex("^\\s*\\{\\s*\"name\"\\s*:\\s*\"([a-z_]+)\"").find(source.substring(jsonStart))
         return match?.groupValues?.getOrNull(1)?.takeIf { LocalToolRegistry.hasTool(it) }
     }
 
     fun parse(raw: String): ToolCall? {
         val text = raw.trim()
-        if (!text.startsWith(OPEN) || !text.endsWith(CLOSE)) return null
-        val json = text.substring(OPEN.length, text.length - CLOSE.length).trim()
+        val markerAt = text.indexOf(OPEN)
+        if (markerAt >= 0) {
+            val jsonStart = markerAt + OPEN.length
+            val closingAt = text.indexOf(CLOSE, jsonStart)
+            if (closingAt >= 0) parseCallJson(text.substring(jsonStart, closingAt).trim())?.let { return it }
+        }
+
+        val candidates = jsonObjects(text).mapNotNull(::parseCallJson).distinctBy { it.name + it.arguments.toString() }
+        return candidates.singleOrNull()
+    }
+
+    private fun parseCallJson(json: String): ToolCall? {
         if (json.length !in 1..MAX_CALL_JSON_CHARS) return null
-        return try {
-            val obj = JSONObject(json)
-            val name = obj.optString("name")
-            val args = obj.optJSONObject("arguments") ?: return null
-            if (!LocalToolRegistry.hasTool(name) || obj.length() != 2) return null
+        val root = try { JSONObject(json) } catch (_: JSONException) { return null }
+        val objects = buildList {
+            add(root)
+            root.optJSONObject("tool_call")?.let(::add)
+            root.optJSONObject("function_call")?.let(::add)
+            root.optJSONArray("tool_calls")?.let { calls ->
+                if (calls.length() == 1) {
+                    calls.optJSONObject(0)?.let { call ->
+                        add(call)
+                        call.optJSONObject("function")?.let(::add)
+                    }
+                }
+            }
+        }
+        return objects.firstNotNullOfOrNull { candidate ->
+            val name = candidate.optString("name")
+            if (!LocalToolRegistry.hasTool(name)) return@firstNotNullOfOrNull null
+            val args = candidate.optJSONObject("arguments")
+                ?: candidate.optString("arguments").takeIf { it.startsWith("{") }?.let { runCatching { JSONObject(it) }.getOrNull() }
+                ?: return@firstNotNullOfOrNull null
             ToolCall(name, args)
-        } catch (_: JSONException) { null }
+        }
+    }
+
+    private fun jsonObjects(text: String): List<String> {
+        val objects = mutableListOf<String>()
+        var start = -1
+        var depth = 0
+        var inString = false
+        var escaped = false
+        text.forEachIndexed { index, char ->
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    char == '\\' -> escaped = true
+                    char == '"' -> inString = false
+                }
+            } else when (char) {
+                '"' -> inString = true
+                '{' -> {
+                    if (depth == 0) start = index
+                    depth++
+                }
+                '}' -> if (depth > 0) {
+                    depth--
+                    if (depth == 0 && start >= 0) {
+                        val length = index - start + 1
+                        if (length <= MAX_CALL_JSON_CHARS) objects += text.substring(start, index + 1)
+                        start = -1
+                    }
+                }
+            }
+        }
+        return objects
     }
 
     fun resultPrompt(name: String, result: String, failed: Boolean): String {
