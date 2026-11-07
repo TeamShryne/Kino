@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.domain.model.ToolActivity
+import com.teamshryne.kino.ui.components.MarkdownText
 import com.teamshryne.kino.ui.components.EmptyPanel
 import com.teamshryne.kino.data.provider.ProviderModel
 import org.json.JSONObject
@@ -226,7 +227,7 @@ private fun UserMessage(message: KinoMessage) {
 @Composable
 private fun AssistantMessage(text: String, onFeedback: ((String) -> Unit)? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(text, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp)
+        MarkdownText(text)
         if (onFeedback != null) Row {
             IconButton(onClick = { onFeedback("LIKE") }, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.ThumbUpOffAlt, "Good response", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             IconButton(onClick = { onFeedback("DISLIKE") }, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.ThumbDownOffAlt, "Bad response", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
