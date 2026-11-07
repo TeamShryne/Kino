@@ -143,7 +143,7 @@ fun MarkdownText(
         Markwon.builder(context)
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(TablePlugin.create(context))
-            .usePlugin(TaskListPlugin.create())
+            .usePlugin(TaskListPlugin.create(context))
             .usePlugin(HtmlPlugin.create())
             .usePlugin(ImagesPlugin.create())
             .build()
