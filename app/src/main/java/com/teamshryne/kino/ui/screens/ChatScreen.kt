@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.domain.model.SearchSource
@@ -101,6 +102,11 @@ import com.teamshryne.kino.ui.components.StreamingMarkdownText
 import com.teamshryne.kino.ui.components.EmptyPanel
 import com.teamshryne.kino.data.provider.ProviderModel
 import org.json.JSONObject
+import android.content.Intent
+import android.content.ClipData
+import android.widget.Toast
+import java.io.File
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.sample
@@ -344,6 +350,7 @@ private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, tableCellMinWidth: Int, onSourceClick: (SearchSource) -> Unit) {
+    val context = LocalContext.current
     var expanded by rememberSaveable(items.first().id) { mutableStateOf(showDetails) }
     LaunchedEffect(showDetails) { expanded = showDetails }
     val heading = if (items.size == 1) items.first().text else "Worked through ${items.size} steps"
@@ -390,6 +397,49 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        } else if (message.tool?.name == "html_to_pdf") {
+                            val pdf = remember(message.tool.detail) { runCatching { JSONObject(message.tool.detail) }.getOrNull() }
+                            val filename = pdf?.optString("filename").orEmpty()
+                            val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
+                            Spacer(Modifier.height(3.dp))
+                            if (safeFilename != null) {
+                                Text(pdf?.optString("title").orEmpty().ifBlank { "PDF ready" }, style = MaterialTheme.typography.bodySmall)
+                                val pdfUri = remember(safeFilename) {
+                                    val file = File(context.filesDir, "pdf-exports/$safeFilename")
+                                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = {
+                                            pdfUri?.let { uri ->
+                                                val open = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(uri, "application/pdf")
+                                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                runCatching { context.startActivity(Intent.createChooser(open, "Open PDF")) }
+                                                    .onFailure { Toast.makeText(context, "No PDF viewer is available.", Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }, enabled = pdfUri != null,
+                                    ) { Text("Open PDF") }
+                                    androidx.compose.material3.TextButton(
+                                        onClick = {
+                                            pdfUri?.let { uri ->
+                                                val share = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "application/pdf"
+                                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                runCatching { context.startActivity(Intent.createChooser(share, "Share PDF")) }
+                                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }, enabled = pdfUri != null,
+                                    ) { Text("Share") }
+                                }
+                            } else {
+                                Text(message.tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall)
                             }
                         } else if (!message.tool?.detail.isNullOrBlank()) {
                             Spacer(Modifier.height(3.dp))

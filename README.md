@@ -1,6 +1,6 @@
 # Kino
 
-Kino is an Android chat app for everyday conversations with a small amount of agent-style tool activity. The current milestone focuses on the native interface and durable local chat history. DeepSeek connection and login are intentionally not implemented yet.
+Kino is an Android chat app for everyday conversations with a small amount of agent-style tool activity. It has a native Compose interface, durable local chat history, and a DeepSeek web-session bridge.
 
 ## Current foundation
 
@@ -8,6 +8,7 @@ Kino is an Android chat app for everyday conversations with a small amount of ag
 - Chats home with search, create, open, and delete actions
 - SQLite-backed conversation and ordered message history
 - Tool activity stored in the message timeline and shown in expandable cards
+- Local calculator, date/time, current-chat search, and HTML-to-PDF tools
 - Settings pages for general behavior, appearance, chat activity, provider, storage, and app info
 - Light and dark palettes, with settings persisted on device
 - GitHub Actions builds and publishes a debug APK artifact, with Gradle output/configuration caches and automatic retention of the 15 newest Actions caches
@@ -33,3 +34,9 @@ Builds run in GitHub Actions on pushes to `main`, pull requests, or manual dispa
 ## UI direction
 
 Kino's screen structure and compact work-log treatment take inspiration from [T3 Code Android](https://github.com/Shrawan-13/t3code-android). Kino has its own app structure and local conversation model.
+
+## Local tool calling
+
+The current DeepSeek bridge does not expose a native function-calling API. Each local chat receives a compact tool contract once, on its first tool-enabled turn. Kino accepts only a complete `[[KINO_TOOL_CALL]]…[[/KINO_TOOL_CALL]]` JSON response, validates it against a local allowlist, executes one of four local tools, then sends a bounded result back for the model to continue. A reply is limited to four tool calls. Tool output is labeled untrusted in the continuation prompt.
+
+Chat search reads saved messages for the active local chat and returns at most eight short excerpts (capped again before being sent to the model). HTML-to-PDF uses Android WebView's paginated print renderer, allows inline styles and data-URI assets, blocks scripts and network loads, limits input to 200,000 characters and output to 100 pages/25 MB, and saves the PDF in app-private storage. The chat exposes Open and Share actions using a temporary content URI grant.

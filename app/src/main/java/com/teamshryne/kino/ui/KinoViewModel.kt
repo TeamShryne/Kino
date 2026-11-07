@@ -13,6 +13,9 @@ import com.teamshryne.kino.data.local.KinoDatabase
 import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
+import com.teamshryne.kino.data.tools.HtmlPdfRenderer
+import com.teamshryne.kino.data.tools.LocalToolRegistry
+import com.teamshryne.kino.data.tools.ToolCallProtocol
 import com.teamshryne.kino.domain.model.ChatProviderState
 import com.teamshryne.kino.domain.model.KinoChat
 import com.teamshryne.kino.domain.model.KinoMessage
@@ -36,12 +39,17 @@ class KinoViewModel(
     application: Application,
     private val conversations: ConversationRepository,
 ) : AndroidViewModel(application) {
+    private companion object { const val MAX_LOCAL_TOOL_CALLS = 4 }
     constructor(application: Application) : this(
         application,
         LocalConversationRepository(KinoDatabase(application)),
     )
     private val preferences = application.getSharedPreferences("kino-settings", 0)
     private val provider = DeepSeekCoreClient(application)
+    private val toolRegistry = LocalToolRegistry(
+        messages = { chatId -> conversations.messages(chatId) },
+        renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
+    )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())
     val chats: StateFlow<List<KinoChat>> = _chats.asStateFlow()
@@ -122,6 +130,26 @@ class KinoViewModel(
             kind = "thinking",
         )
         _streamingTools.update { it + message }
+    }
+
+    private fun startLocalTool(chatId: String, name: String, label: String, summary: String, status: String = "Working"): Long {
+        val message = KinoMessage(
+            id = nextLiveToolId--,
+            chatId = chatId,
+            role = MessageRole.TOOL,
+            text = label,
+            createdAt = System.currentTimeMillis(),
+            tool = ToolActivity(name, status, summary),
+            kind = name,
+        )
+        _streamingTools.update { it + message }
+        return message.id
+    }
+
+    private fun finishLocalTool(id: Long, status: String, detail: String) {
+        _streamingTools.update { current -> current.map { message ->
+            if (message.id == id) message.copy(tool = message.tool?.copy(status = status, detail = detail)) else message
+        } }
     }
 
     private fun appendThinkingTool(chatId: String, content: String) {
@@ -281,6 +309,7 @@ class KinoViewModel(
         nextLiveToolId = -10L
         liveSearchToolId = null
         completionJob = viewModelScope.launch {
+            var toolActivitiesPersisted = false
             var session = active.sessionId
             var parent = active.parentMessageId
             var usage = active.contextTokens
@@ -290,39 +319,89 @@ class KinoViewModel(
                     check(session.isNotBlank()) { "DeepSeek did not return a chat session." }
                     conversations.saveProviderState(active.copy(sessionId = session))
                 }
-                val result = provider.complete(
-                    sessionId = session,
-                    parentMessageId = parent,
-                    modelType = model.id,
-                    prompt = body,
-                    thinking = active.thinkingEnabled,
-                    search = active.searchEnabled,
-                    fileIds = filesForMessage.map { it.first },
-                    cancelled = completionCancellation ?: AtomicBoolean(false),
-                    onEvent = { event ->
-                        when (event.optString("kind")) {
-                            "text_delta" -> _streamingText.update { it + event.optString("content") }
-                            "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") {
-                                startThinkingTool(chatId)
+                var toolProtocolVersion = active.toolProtocolVersion
+                var nextPrompt = if (toolProtocolVersion == 0) ToolCallProtocol.firstPrompt(body) else body
+                var toolCalls = 0
+                while (true) {
+                    val turnText = StringBuilder()
+                    var pendingToolName: String? = null
+                    var pendingToolId: Long? = null
+                    fun updateTurnText() {
+                        if (pendingToolName == null) {
+                            val snapshot = turnText.toString()
+                            ToolCallProtocol.peekName(snapshot)?.let { name ->
+                                pendingToolName = name
+                                pendingToolId = startLocalTool(chatId, name, LocalToolRegistry.progress(name, JSONObject()).first, "Waiting for the model to finish the tool request.", "Preparing")
                             }
-                            "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
-                            "fragment_delta" -> when (event.optString("fragment_type")) {
-                                "RESPONSE" -> _streamingText.update { it + event.optString("content") }
-                                "THINK" -> appendThinkingTool(chatId, event.optString("content"))
-                                "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
-                            }
-                            "fragment" -> handleProviderFragment(chatId, event.optJSONObject("fragment"))
-                            "usage" -> {
-                                _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
-                            }
-                            "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
-                            "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
+                            _streamingText.value = ToolCallProtocol.visibleText(snapshot)
                         }
-                    },
-                )
-                session = result.optString("session_id", session)
-                parent = result.optLong("response_message_id", parent)
-                usage = result.optLong("accumulated_token_usage", usage)
+                    }
+                    val result = provider.complete(
+                        sessionId = session,
+                        parentMessageId = parent,
+                        modelType = model.id,
+                        prompt = nextPrompt,
+                        thinking = active.thinkingEnabled,
+                        search = active.searchEnabled,
+                        fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
+                        cancelled = completionCancellation ?: AtomicBoolean(false),
+                        onEvent = { event ->
+                            when (event.optString("kind")) {
+                                "text_delta" -> {
+                                    turnText.append(event.optString("content"))
+                                    updateTurnText()
+                                }
+                                "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") startThinkingTool(chatId)
+                                "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
+                                "fragment_delta" -> when (event.optString("fragment_type")) {
+                                    "RESPONSE" -> {
+                                        turnText.append(event.optString("content"))
+                                        updateTurnText()
+                                    }
+                                    "THINK" -> appendThinkingTool(chatId, event.optString("content"))
+                                    "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
+                                }
+                                "fragment" -> handleProviderFragment(chatId, event.optJSONObject("fragment"))
+                                "usage" -> _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
+                                "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
+                                "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
+                            }
+                        },
+                    )
+                    session = result.optString("session_id", session)
+                    parent = result.optLong("response_message_id", parent)
+                    usage = result.optLong("accumulated_token_usage", usage)
+                    toolProtocolVersion = 1
+                    conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
+                    val rawTurn = turnText.toString()
+                    val call = ToolCallProtocol.parse(rawTurn)
+                    if (call == null) {
+                        pendingToolId?.let { finishLocalTool(it, "Failed", "The model returned an invalid tool request.") }
+                        _streamingText.value = if (rawTurn.trim().startsWith(ToolCallProtocol.OPEN)) {
+                            "I couldn't read the tool request. Please try again."
+                        } else rawTurn
+                        break
+                    }
+                    if (toolCalls >= MAX_LOCAL_TOOL_CALLS) {
+                        _streamingText.value = "I reached the limit of $MAX_LOCAL_TOOL_CALLS tool calls for this reply. Please ask me to continue."
+                        break
+                    }
+                    val (label, summary) = LocalToolRegistry.progress(call.name, call.arguments)
+                    _streamingText.value = ""
+                    val liveId = if (pendingToolName == call.name) pendingToolId ?: startLocalTool(chatId, call.name, label, summary) else startLocalTool(chatId, call.name, label, summary)
+                    finishLocalTool(liveId, "Working", summary)
+                    val toolResult = try {
+                        toolRegistry.execute(chatId, call.name, call.arguments)
+                    } catch (error: Exception) {
+                        if (completionCancellation?.get() == true) throw error
+                        val reason = error.message?.take(500) ?: "Tool failed."
+                        finishLocalTool(liveId, "Failed", reason)
+                        null
+                    }
+                    if (toolResult != null) finishLocalTool(liveId, "Done", toolResult.detail)
+                    nextPrompt = ToolCallProtocol.resultPrompt(call.name, toolResult?.detail ?: _streamingTools.value.firstOrNull { it.id == liveId }?.tool?.detail.orEmpty(), failed = toolResult == null)
+                    toolCalls++
+                }
                 val answer = _streamingText.value
                 _streamingTools.value.forEach { toolMessage ->
                     toolMessage.tool?.let { tool ->
@@ -330,20 +409,36 @@ class KinoViewModel(
                             chatId,
                             MessageRole.TOOL,
                             toolMessage.text,
-                            tool.copy(status = "Done"),
+                            tool,
                             tool.name,
                         )
                     }
                 }
+                toolActivitiesPersisted = true
                 if (answer.isNotBlank()) {
                     val metadata = JSONObject().put("session_id", session).put("message_id", parent).toString()
                     conversations.appendAgentEvent(chatId, MessageRole.ASSISTANT, answer, kind = "response", metadata = metadata, tokenUsage = usage)
                 }
-                conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage))
+                conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                 _attachedFiles.value = emptyList()
                 _contextTokens.value = usage
             } catch (error: Exception) {
                 if (completionCancellation?.get() != true) _providerError.value = error.message?.take(240) ?: "DeepSeek request failed."
+                val stopped = completionCancellation?.get() == true
+                _streamingTools.update { current -> current.map { message ->
+                    val status = message.tool?.status
+                    if (status == "Preparing" || status == "Working") {
+                        message.copy(tool = message.tool?.copy(status = if (stopped) "Stopped" else "Failed", detail = if (stopped) "Stopped by user." else error.message?.take(500) ?: "Request failed."))
+                    } else message
+                } }
+                if (!toolActivitiesPersisted) {
+                    _streamingTools.value.forEach { toolMessage ->
+                        toolMessage.tool?.let { tool ->
+                            conversations.appendAgentEvent(chatId, MessageRole.TOOL, toolMessage.text, tool, tool.name)
+                        }
+                    }
+                    toolActivitiesPersisted = true
+                }
                 if (_streamingText.value.isNotBlank()) {
                     val metadata = if (session.isNotBlank() && parent > 0) JSONObject().put("session_id", session).put("message_id", parent).toString() else null
                     conversations.appendAgentEvent(chatId, MessageRole.ASSISTANT, _streamingText.value, kind = "response", metadata = metadata, tokenUsage = usage)
@@ -363,7 +458,10 @@ class KinoViewModel(
         }
     }
 
-    fun stopGeneration() { completionCancellation?.set(true) }
+    fun stopGeneration() {
+        completionCancellation?.set(true)
+        completionJob?.cancel()
+    }
 
     fun attachFiles(uris: List<Uri>) = viewModelScope.launch {
         if (credentialStore.load() == null) {
@@ -468,6 +566,8 @@ class KinoViewModel(
                 val history = provider.history(remote.id).optJSONArray("messages") ?: JSONArray()
                 var parent = 0L
                 var usage = 0L
+                var pendingRemoteToolCall: ToolCallProtocol.ToolCall? = null
+                var remoteToolProtocolVersion = 0
                 for (index in 0 until history.length()) {
                     val message = history.optJSONObject(index) ?: continue
                     val messageId = message.optLong("message_id")
@@ -505,13 +605,34 @@ class KinoViewModel(
                         }
                     }
                     when (role) {
-                        "USER" -> if (response.isNotBlank()) conversations.sendUserMessage(localId, response.toString())
+                        "USER" -> if (response.isNotBlank()) {
+                            val prompt = response.toString()
+                            if (ToolCallProtocol.hasPromptPrelude(prompt)) remoteToolProtocolVersion = 1
+                            val toolResult = ToolCallProtocol.parseResultPrompt(prompt)
+                            if (toolResult != null && pendingRemoteToolCall?.name == toolResult.name) {
+                                remoteToolProtocolVersion = 1
+                                conversations.appendAgentEvent(
+                                    localId,
+                                    MessageRole.TOOL,
+                                    LocalToolRegistry.activityLabel(toolResult.name),
+                                    ToolActivity(toolResult.name, if (toolResult.succeeded) "Done" else "Failed", toolResult.output),
+                                    toolResult.name,
+                                )
+                                pendingRemoteToolCall = null
+                            } else {
+                                pendingRemoteToolCall = null
+                                conversations.sendUserMessage(localId, ToolCallProtocol.stripPromptPrelude(prompt))
+                            }
+                        }
                         "ASSISTANT" -> {
+                            val toolCall = ToolCallProtocol.parse(response.toString())
                             activities.forEach { activity ->
                                 val label = if (activity.name == "search") "Web search" else "Thinking"
                                 conversations.appendAgentEvent(localId, MessageRole.TOOL, label, activity, activity.name)
                             }
-                            if (response.isNotBlank()) {
+                            if (toolCall != null) {
+                                pendingRemoteToolCall = toolCall
+                            } else if (response.isNotBlank()) {
                                 val metadata = JSONObject().put("session_id", remote.id).put("message_id", messageId).toString()
                                 conversations.appendAgentEvent(localId, MessageRole.ASSISTANT, response.toString(), kind = "response", metadata = metadata, tokenUsage = message.optLong("accumulated_token_usage"))
                                 parent = messageId
@@ -520,7 +641,7 @@ class KinoViewModel(
                     }
                     usage = maxOf(usage, message.optLong("accumulated_token_usage"))
                 }
-                conversations.saveProviderState(state.copy(parentMessageId = parent, contextTokens = usage))
+                conversations.saveProviderState(state.copy(parentMessageId = parent, contextTokens = usage, toolProtocolVersion = remoteToolProtocolVersion))
                 _activeChat.value = localId
                 _messages.value = conversations.messages(localId)
                 _chats.value = conversations.chats()

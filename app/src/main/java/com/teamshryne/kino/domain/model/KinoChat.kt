@@ -28,6 +28,7 @@ data class ChatProviderState(
     val contextTokens: Long = 0,
     val thinkingEnabled: Boolean = false,
     val searchEnabled: Boolean = false,
+    val toolProtocolVersion: Int = 0,
 )
 
 enum class MessageRole {

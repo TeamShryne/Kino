@@ -12,7 +12,7 @@ import com.teamshryne.kino.domain.model.ToolActivity
 import java.util.UUID
 
 /** Local schema for conversations and their ordered message/tool activity timeline. */
-class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 2) {
+class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 3) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -52,7 +52,8 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             model_type TEXT NOT NULL DEFAULT 'instant',
             context_tokens INTEGER NOT NULL DEFAULT 0,
             thinking_enabled INTEGER NOT NULL DEFAULT 0,
-            search_enabled INTEGER NOT NULL DEFAULT 0
+            search_enabled INTEGER NOT NULL DEFAULT 0,
+            tool_protocol_version INTEGER NOT NULL DEFAULT 0
         )""".trimIndent())
     }
 
@@ -112,6 +113,7 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             db.execSQL("ALTER TABLE messages ADD COLUMN token_usage INTEGER")
             createProviderStateTable(db)
         }
+        if (oldVersion == 2) db.execSQL("ALTER TABLE chat_provider_state ADD COLUMN tool_protocol_version INTEGER NOT NULL DEFAULT 0")
     }
 
     fun listChats(): List<KinoChat> = readableDatabase.rawQuery(
@@ -175,13 +177,14 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
     }
 
     fun providerState(chatId: String): ChatProviderState? = readableDatabase.rawQuery(
-        "SELECT chat_id, provider, session_id, parent_message_id, model_type, context_tokens, thinking_enabled, search_enabled FROM chat_provider_state WHERE chat_id=?",
+        "SELECT chat_id, provider, session_id, parent_message_id, model_type, context_tokens, thinking_enabled, search_enabled, tool_protocol_version FROM chat_provider_state WHERE chat_id=?",
         arrayOf(chatId),
     ).use { cursor ->
         if (!cursor.moveToFirst()) null else ChatProviderState(
             chatId = cursor.getString(0), provider = cursor.getString(1), sessionId = cursor.getString(2),
             parentMessageId = cursor.getLong(3), modelType = cursor.getString(4), contextTokens = cursor.getLong(5),
             thinkingEnabled = cursor.getInt(6) != 0, searchEnabled = cursor.getInt(7) != 0,
+            toolProtocolVersion = cursor.getInt(8),
         )
     }
 
@@ -190,7 +193,7 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             put("chat_id", state.chatId); put("provider", state.provider); put("session_id", state.sessionId)
             put("parent_message_id", state.parentMessageId); put("model_type", state.modelType)
             put("context_tokens", state.contextTokens); put("thinking_enabled", if (state.thinkingEnabled) 1 else 0)
-            put("search_enabled", if (state.searchEnabled) 1 else 0)
+            put("search_enabled", if (state.searchEnabled) 1 else 0); put("tool_protocol_version", state.toolProtocolVersion)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
