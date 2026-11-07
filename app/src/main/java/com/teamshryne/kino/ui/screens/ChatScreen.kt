@@ -511,7 +511,7 @@ private fun Composer(
                     BasicTextField(
                         value = value,
                         onValueChange = onChange,
-                        modifier = Modifier.weight(1f).heightIn(min = 40.dp, max = 144.dp).padding(bottom = 8.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp, max = 144.dp),
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         minLines = 1,
@@ -527,7 +527,7 @@ private fun Composer(
                     IconButton(
                         onClick = if (isBusy) onStop else onSend,
                         enabled = isBusy || value.isNotBlank(),
-                        modifier = Modifier.padding(bottom = 1.dp).size(38.dp).clip(CircleShape).background(if (isBusy) MaterialTheme.colorScheme.error else if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.size(40.dp).clip(CircleShape).background(if (isBusy) MaterialTheme.colorScheme.error else if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
                     ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = if (value.isNotBlank() || isBusy) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp)) }
                 }
             }

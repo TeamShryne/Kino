@@ -15,7 +15,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -156,6 +158,7 @@ fun MarkdownText(
         Column(Modifier.fillMaxWidth()) {
             blocks.forEachIndexed { index, block ->
                 key(index, block.isTable) {
+                    if (block.isTable) Spacer(Modifier.height(12.dp))
                     val blockModifier = if (block.isTable) {
                         Modifier.fillMaxWidth()
                     } else Modifier.fillMaxWidth()
@@ -179,6 +182,7 @@ fun MarkdownText(
                             animateNewContent = animateNewContent,
                         )
                     }
+                    if (block.isTable) Spacer(Modifier.height(14.dp))
                 }
             }
         }
