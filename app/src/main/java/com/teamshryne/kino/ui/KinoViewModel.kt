@@ -47,7 +47,7 @@ class KinoViewModel(
         LocalConversationRepository(KinoDatabase(application)),
     )
     private val preferences = application.getSharedPreferences("kino-settings", 0)
-    private val libraries = RuntimeLibraries(application)
+    private val libraryManager = RuntimeLibraries(application)
     private val provider = DeepSeekCoreClient(application)
     private val _libraries = MutableStateFlow<List<LibraryState>>(emptyList())
     val libraries: StateFlow<List<LibraryState>> = _libraries.asStateFlow()
@@ -112,14 +112,14 @@ class KinoViewModel(
     init {
         refresh()
         refreshLibraries()
-        if (_deepSeekConnected.value && libraries.isInstalled("kino-core")) {
+        if (_deepSeekConnected.value && libraryManager.isInstalled("kino-core")) {
             refreshCapabilities()
             refreshRemoteSessions()
         }
     }
 
     fun refreshLibraries() = viewModelScope.launch {
-        try { _libraries.value = libraries.catalog().map(libraries::state); _libraryError.value = null
+        try { _libraries.value = libraryManager.catalog().map(libraryManager::state); _libraryError.value = null
             if (_libraries.value.any { it.library.id == "kino-core" && it.installed }) dismissCorePrompt() }
         catch (error: Exception) { _libraryError.value = error.message?.take(240) ?: "Could not load available libraries." }
     }
@@ -129,7 +129,7 @@ class KinoViewModel(
         if (_libraryBusy.value != null) return@launch
         _libraryBusy.value = id; _libraryProgress.value = 0f; _libraryError.value = null
         try {
-            libraries.install(item) { received, total -> _libraryProgress.value = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f }
+            libraryManager.install(item) { received, total -> _libraryProgress.value = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f }
             refreshLibraries()
             if (id == "kino-core" && credentialStore.load() != null) { refreshCapabilities(); refreshRemoteSessions() }
             if (id == "kino-core") dismissCorePrompt()
@@ -312,7 +312,7 @@ class KinoViewModel(
     fun send(text: String) = viewModelScope.launch {
         val body = text.trim()
         if (body.isEmpty()) return@launch
-        if (!libraries.isInstalled("kino-core")) {
+        if (!libraryManager.isInstalled("kino-core")) {
             _firstRunCorePrompt.value = true
             _providerError.value = "Install Kino Core from Settings > Libraries before chatting."
             return@launch
@@ -586,7 +586,7 @@ class KinoViewModel(
     }
 
     fun refreshCapabilities() = viewModelScope.launch {
-        if (!libraries.isInstalled("kino-core") || credentialStore.load() == null) return@launch
+        if (!libraryManager.isInstalled("kino-core") || credentialStore.load() == null) return@launch
         _providerBusy.value = true
         try {
             val loaded = provider.capabilities()
@@ -601,7 +601,7 @@ class KinoViewModel(
     }
 
     fun refreshRemoteSessions() = viewModelScope.launch {
-        if (!libraries.isInstalled("kino-core") || credentialStore.load() == null) return@launch
+        if (!libraryManager.isInstalled("kino-core") || credentialStore.load() == null) return@launch
         _providerBusy.value = true
         try {
             _remoteSessions.value = provider.remoteSessions()
