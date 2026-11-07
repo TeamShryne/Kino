@@ -1,6 +1,8 @@
 package com.teamshryne.kino.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,12 +32,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -77,6 +79,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
@@ -84,6 +87,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
@@ -425,6 +429,7 @@ private fun Composer(
     onStop: () -> Unit,
 ) {
     val selected = models.firstOrNull { it.id == selectedModel }
+    var optionsOpen by rememberSaveable { mutableStateOf(false) }
     var modelMenu by rememberSaveable { mutableStateOf(false) }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) onAttach(uris)
@@ -437,100 +442,128 @@ private fun Composer(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(26.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
         ) {
-            Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(
+                Modifier.fillMaxWidth().animateContentSize().padding(horizontal = 9.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 if (error != null) Text(error, modifier = Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (attachedFiles.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    attachedFiles.forEach { (id, name) ->
-                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                IconButton(onClick = { onRemoveAttachment(id) }, modifier = Modifier.size(30.dp)) { Icon(Icons.Rounded.Close, "Remove $name", modifier = Modifier.size(15.dp)) }
+                if (attachedFiles.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        attachedFiles.forEach { (id, name) ->
+                            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                                Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                    IconButton(onClick = { onRemoveAttachment(id) }, modifier = Modifier.size(30.dp)) { Icon(Icons.Rounded.Close, "Remove $name", modifier = Modifier.size(15.dp)) }
+                                }
                             }
                         }
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().height(30.dp).horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Box {
-                        Surface(
-                            modifier = Modifier.height(28.dp).clip(RoundedCornerShape(50)).clickable { modelMenu = true },
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                        ) {
-                            Row(Modifier.padding(start = 9.dp, end = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(selected?.name ?: "DeepSeek", style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.Rounded.ExpandMore, "Choose model", modifier = Modifier.size(15.dp))
-                            }
-                        }
-                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
-                            models.forEach { model -> DropdownMenuItem(text = { Text(model.name) }, onClick = { modelMenu = false; onModelChange(model.id) }) }
-                        }
+                    val plusRotation by animateFloatAsState(if (optionsOpen) 45f else 0f, label = "composer plus rotation")
+                    IconButton(onClick = { optionsOpen = true }, enabled = !isBusy, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.Add, "More options", modifier = Modifier.size(25.dp).rotate(plusRotation), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (selected?.supportsThinking == true) {
-                        CompactOptionChip(Icons.Rounded.Psychology, "Think", thinkingEnabled) { onThinkingChange(!thinkingEnabled) }
-                    }
-                    if (selected?.supportsSearch == true) {
-                        CompactOptionChip(Icons.Rounded.TravelExplore, "Search", searchEnabled) { onSearchChange(!searchEnabled) }
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     BasicTextField(
-                    value = value,
-                    onValueChange = onChange,
-                    modifier = Modifier.weight(1f).heightIn(min = 32.dp, max = 112.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    minLines = 1,
-                    maxLines = 5,
-                    decorationBox = { innerTextField ->
-                        Box(Modifier.fillMaxWidth().defaultMinSize(minHeight = 32.dp), contentAlignment = Alignment.CenterStart) {
-                            if (value.isEmpty()) Text("Message Kino…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            innerTextField()
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { if (value.isNotBlank() && !isBusy) onSend() }),
+                        value = value,
+                        onValueChange = onChange,
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp, max = 144.dp).padding(bottom = 8.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        minLines = 1,
+                        maxLines = 6,
+                        decorationBox = { innerTextField ->
+                            Box(Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp), contentAlignment = Alignment.CenterStart) {
+                                if (value.isEmpty()) Text("Message Kino…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                innerTextField()
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
                     )
-                    IconButton(onClick = { attachmentPicker.launch(arrayOf("*/*")) }, enabled = !isBusy, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Rounded.AttachFile, "Attach file", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                    }
                     IconButton(
                         onClick = if (isBusy) onStop else onSend,
                         enabled = isBusy || value.isNotBlank(),
-                        modifier = Modifier.size(34.dp).clip(CircleShape).background(if (isBusy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
-                    ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = Color.White, modifier = Modifier.size(17.dp)) }
+                        modifier = Modifier.padding(bottom = 1.dp).size(38.dp).clip(CircleShape).background(if (isBusy) MaterialTheme.colorScheme.error else if (value.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                    ) { Icon(if (isBusy) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward, if (isBusy) "Stop response" else "Send", tint = if (value.isNotBlank() || isBusy) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp)) }
                 }
+            }
+        }
+    }
+
+    if (optionsOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { optionsOpen = false; modelMenu = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Message options", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                if (selected?.supportsThinking == true) {
+                    ComposerOptionRow(Icons.Rounded.Psychology, "Thinking", "Let Kino reason before replying", thinkingEnabled) { onThinkingChange(!thinkingEnabled) }
+                }
+                if (selected?.supportsSearch == true) {
+                    ComposerOptionRow(Icons.Rounded.TravelExplore, "Web search", "Search the web for this reply", searchEnabled) { onSearchChange(!searchEnabled) }
+                }
+                Box {
+                    ComposerOptionRow(
+                        icon = Icons.Rounded.Chat,
+                        title = "Model",
+                        subtitle = selected?.name ?: "Choose a model",
+                        selected = false,
+                        trailing = { Icon(Icons.Rounded.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        onClick = { modelMenu = true },
+                    )
+                    DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        models.forEach { model -> DropdownMenuItem(text = { Text(model.name) }, onClick = { modelMenu = false; onModelChange(model.id) }) }
+                    }
+                }
+                ComposerOptionRow(
+                    icon = Icons.Rounded.AttachFile,
+                    title = "Add files",
+                    subtitle = if (attachedFiles.isEmpty()) "Photos, documents, and more" else "${attachedFiles.size} attached",
+                    selected = false,
+                    trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    onClick = {
+                        optionsOpen = false
+                        attachmentPicker.launch(arrayOf("*/*"))
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CompactOptionChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
+private fun ComposerOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
     selected: Boolean,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.height(28.dp).clip(RoundedCornerShape(50)).clickable(onClick = onClick),
-        shape = RoundedCornerShape(50),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(
-            Modifier.padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(icon, null, modifier = Modifier.size(14.dp), tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            trailing?.invoke()
         }
     }
 }
