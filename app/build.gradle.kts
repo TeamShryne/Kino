@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val persistentDebugKeystorePath = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE_PATH").orNull
+val persistentDebugKeystorePassword = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE_PASSWORD").orNull
+val persistentDebugKeyAlias = providers.environmentVariable("ANDROID_DEBUG_KEY_ALIAS").orNull
+
 android {
     namespace = "com.teamshryne.kino"
     compileSdk = 35
@@ -17,6 +21,22 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    if (persistentDebugKeystorePath != null && persistentDebugKeystorePassword != null && persistentDebugKeyAlias != null) {
+        signingConfigs {
+            create("persistentDebug") {
+                storeFile = file(persistentDebugKeystorePath)
+                storePassword = persistentDebugKeystorePassword
+                keyAlias = persistentDebugKeyAlias
+                keyPassword = persistentDebugKeystorePassword
+            }
+        }
+        buildTypes {
+            getByName("debug") {
+                signingConfig = signingConfigs.getByName("persistentDebug")
+            }
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

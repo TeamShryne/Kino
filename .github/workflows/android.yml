@@ -65,6 +65,24 @@ jobs:
           cd "$RUNNER_TEMP/kino-core"
           sha256sum --check kino-core.aar.sha256
 
+      - name: Configure persistent debug signing
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.KINO_ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.KINO_ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+          ANDROID_DEBUG_KEY_ALIAS: kino-debug
+        shell: bash
+        run: |
+          if [[ -z "$ANDROID_DEBUG_KEYSTORE_BASE64" || -z "$ANDROID_DEBUG_KEYSTORE_PASSWORD" ]]; then
+            echo "Persistent debug signing secrets are unavailable; using the runner's default debug key."
+            exit 0
+          fi
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kino-debug.keystore"
+          {
+            echo "ANDROID_DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/kino-debug.keystore"
+            echo "ANDROID_DEBUG_KEYSTORE_PASSWORD=$ANDROID_DEBUG_KEYSTORE_PASSWORD"
+            echo "ANDROID_DEBUG_KEY_ALIAS=$ANDROID_DEBUG_KEY_ALIAS"
+          } >> "$GITHUB_ENV"
+
       - name: Build debug APK
         run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug -PkinoCoreAar="$RUNNER_TEMP/kino-core/kino-core.aar"
 
