@@ -35,8 +35,6 @@ object ToolCallProtocol {
 
     fun hasPromptPrelude(historyText: String): Boolean = historyText.startsWith(CONTRACT_OPEN)
 
-    fun hasPromptPrelude(historyText: String): Boolean = historyText.startsWith(CONTRACT_OPEN)
-
     fun visibleText(raw: String): String {
         val callAt = raw.indexOf(OPEN)
         if (callAt >= 0) return raw.substring(0, callAt)
