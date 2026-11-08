@@ -63,6 +63,7 @@ fun KinoApp(model: KinoViewModel) {
     val pdfLibraryPrompt by model.pdfLibraryPrompt.collectAsState()
     val browserOpen by model.browserOpen.collectAsState()
     val browserState by model.browserState.collectAsState()
+    val browserProgress = streamingTools.lastOrNull { it.tool?.name == "thinking" }?.tool?.detail.orEmpty()
     var tab by rememberSaveable { mutableStateOf(MainTab.Chats) }
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -113,6 +114,7 @@ fun KinoApp(model: KinoViewModel) {
                 session = model.browserSession,
                 state = browserState,
                 visible = browserOpen,
+                progressText = browserProgress,
                 onClose = model::closeBrowser,
                 modifier = Modifier.fillMaxSize().zIndex(if (browserOpen) 1f else -1f),
             )

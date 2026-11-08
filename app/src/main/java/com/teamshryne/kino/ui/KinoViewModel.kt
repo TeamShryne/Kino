@@ -213,6 +213,48 @@ class KinoViewModel(
         } }
     }
 
+    private fun updateAssistantBeforeTool(chatId: String, beforeId: Long?, existingId: Long?, text: String, metadata: String?): Long? {
+        if (text.isBlank()) return existingId
+        val eventId = existingId ?: nextLiveToolId--
+        val message = KinoMessage(
+            id = eventId,
+            chatId = chatId,
+            role = MessageRole.ASSISTANT,
+            text = text,
+            createdAt = System.currentTimeMillis(),
+            kind = "response",
+            metadata = metadata,
+        )
+        _streamingTools.update { current ->
+            val existingIndex = current.indexOfFirst { it.id == eventId }
+            if (existingIndex >= 0) {
+                return@update current.toMutableList().apply { this[existingIndex] = message }
+            }
+            val index = beforeId?.let { id -> current.indexOfFirst { it.id == id } } ?: -1
+            if (index < 0) current + message
+            else current.toMutableList().apply { add(index, message) }
+        }
+        return eventId
+    }
+
+    private suspend fun persistStreamingEvents(chatId: String) {
+        _streamingTools.value.toList().forEach { event ->
+            if (event.role == MessageRole.ASSISTANT) {
+                conversations.appendAgentEvent(
+                    chatId,
+                    MessageRole.ASSISTANT,
+                    event.text,
+                    kind = event.kind ?: "response",
+                    metadata = event.metadata,
+                )
+            } else {
+                event.tool?.let { activity ->
+                    conversations.appendAgentEvent(chatId, MessageRole.TOOL, event.text, activity, activity.name)
+                }
+            }
+        }
+    }
+
     private fun appendThinkingTool(chatId: String, content: String) {
         if (content.isEmpty()) return
         _streamingTools.update { current ->
@@ -417,13 +459,23 @@ class KinoViewModel(
                     var responseFragmentText: String? = null
                     var pendingToolName: String? = null
                     var pendingToolId: Long? = null
+                    var pendingPreludeId: Long? = null
                     fun updateTurnText() {
+                        val snapshot = turnText.toString()
                         if (pendingToolName == null) {
-                            val snapshot = turnText.toString()
                             ToolCallProtocol.peekName(snapshot)?.let { name ->
                                 pendingToolName = name
                                 pendingToolId = startLocalTool(chatId, name, LocalToolRegistry.progress(name, JSONObject()).first, "Waiting for the model to finish the tool request.", "Preparing")
                             }
+                        }
+                        val visible = ToolCallProtocol.visibleText(snapshot).trim()
+                        if (pendingToolName != null) {
+                            val metadata = session.takeIf { it.isNotBlank() && parent > 0 }?.let {
+                                JSONObject().put("session_id", session).put("message_id", parent).toString()
+                            }
+                            pendingPreludeId = updateAssistantBeforeTool(chatId, pendingToolId, pendingPreludeId, visible, metadata)
+                            _streamingText.value = ""
+                        } else {
                             _streamingText.value = ToolCallProtocol.visibleText(snapshot)
                         }
                     }
@@ -490,6 +542,13 @@ class KinoViewModel(
                         } else rawTurn
                         break
                     }
+                    val preToolMessage = ToolCallProtocol.visibleText(rawTurn).trim()
+                    if (preToolMessage.isNotBlank()) {
+                        val metadata = session.takeIf { it.isNotBlank() && parent > 0 }?.let {
+                            JSONObject().put("session_id", session).put("message_id", parent).toString()
+                        }
+                        pendingPreludeId = updateAssistantBeforeTool(chatId, pendingToolId, pendingPreludeId, preToolMessage, metadata)
+                    }
                     val (label, summary) = LocalToolRegistry.progress(call.name, call.arguments)
                     _streamingText.value = ""
                     val liveId = if (pendingToolName == call.name) pendingToolId ?: startLocalTool(chatId, call.name, label, summary) else startLocalTool(chatId, call.name, label, summary)
@@ -508,17 +567,7 @@ class KinoViewModel(
                     toolCalls++
                 }
                 val answer = _streamingText.value
-                _streamingTools.value.forEach { toolMessage ->
-                    toolMessage.tool?.let { tool ->
-                        conversations.appendAgentEvent(
-                            chatId,
-                            MessageRole.TOOL,
-                            toolMessage.text,
-                            tool,
-                            tool.name,
-                        )
-                    }
-                }
+                persistStreamingEvents(chatId)
                 toolActivitiesPersisted = true
                 if (answer.isNotBlank()) {
                     val metadata = JSONObject().put("session_id", session).put("message_id", parent).toString()
@@ -555,11 +604,7 @@ class KinoViewModel(
                     } else message
                 } }
                 if (!toolActivitiesPersisted) {
-                    _streamingTools.value.forEach { toolMessage ->
-                        toolMessage.tool?.let { tool ->
-                            conversations.appendAgentEvent(chatId, MessageRole.TOOL, toolMessage.text, tool, tool.name)
-                        }
-                    }
+                    persistStreamingEvents(chatId)
                     toolActivitiesPersisted = true
                 }
                 if (_streamingText.value.isNotBlank()) {
@@ -778,6 +823,11 @@ class KinoViewModel(
                                 conversations.appendAgentEvent(localId, MessageRole.TOOL, label, activity, activity.name)
                             }
                             if (toolCall != null) {
+                                val preToolMessage = ToolCallProtocol.visibleText(response.toString()).trim()
+                                if (preToolMessage.isNotBlank()) {
+                                    val metadata = JSONObject().put("session_id", remote.id).put("message_id", messageId).toString()
+                                    conversations.appendAgentEvent(localId, MessageRole.ASSISTANT, preToolMessage, kind = "response", metadata = metadata)
+                                }
                                 pendingRemoteToolCall = toolCall
                             } else if (response.isNotBlank()) {
                                 val metadata = JSONObject().put("session_id", remote.id).put("message_id", messageId).toString()

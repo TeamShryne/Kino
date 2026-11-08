@@ -85,6 +85,7 @@ fun BrowserSessionPane(
     session: KinoBrowserSession,
     state: BrowserUiState,
     visible: Boolean,
+    progressText: String,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -117,7 +118,7 @@ fun BrowserSessionPane(
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).alpha(if (visible) 1f else 0f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(
-                Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
@@ -134,6 +135,16 @@ fun BrowserSessionPane(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
+                    val progressLines = latestBrowserProgress(progressText)
+                    if (visible && progressLines.isNotBlank()) {
+                        Text(
+                            progressLines,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 TextButton(onClick = { session.setUserControl(!state.userHasControl) }) {
                     Text(if (state.userHasControl) "Return to Kino" else "Take control")
@@ -293,3 +304,12 @@ fun BrowserSessionPane(
         )
     }
 }
+
+private fun latestBrowserProgress(detail: String): String = detail.takeLast(1_200)
+    .lines()
+    .flatMap { line -> line.split(Regex("(?<=[.!?])\\s+")) }
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .takeLast(2)
+    .joinToString("\n")
+    .takeLast(360)

@@ -149,6 +149,7 @@ fun ChatScreen(
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var selectedSource by remember { mutableStateOf<SearchSource?>(null) }
     val rows = remember(messages) { groupToolActivity(messages) }
+    val liveRows = remember(liveTools) { groupToolActivity(liveTools) }
     val listState = rememberLazyListState()
     var followBottom by remember { mutableStateOf(true) }
     // Follow rendered-line batches instead of every incoming token; this keeps
@@ -156,7 +157,7 @@ fun ChatScreen(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val approximateCharsPerLine = ((screenWidthDp - 64) / 8).coerceAtLeast(24)
     val streamLineRevision = liveText.length / approximateCharsPerLine + liveText.count { it == '\n' }
-    val streamRevision = streamLineRevision + liveTools.sumOf { it.tool?.detail?.length ?: 0 } / 64
+    val streamRevision = streamLineRevision + liveTools.sumOf { (it.tool?.detail?.length ?: 0) + it.text.length } / 64
     val latestStreamRevision by rememberUpdatedState(streamRevision)
 
     LaunchedEffect(listState) {
@@ -255,9 +256,14 @@ fun ChatScreen(
                         is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth) { selectedSource = it }
                     }
                 }
-                liveTools.forEach { activity ->
-                    item(key = "live-tool-${activity.id}") {
-                        ToolActivityBlock(listOf(activity), showToolDetails, tableCellMinWidth) { selectedSource = it }
+                liveRows.forEach { row ->
+                    when (row) {
+                        is TimelineRow.Message -> item(key = "live-" + row.key) {
+                            AssistantMessage(row.message.text, tableCellMinWidth = tableCellMinWidth)
+                        }
+                        is TimelineRow.WorkGroup -> item(key = "live-" + row.key) {
+                            ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth) { selectedSource = it }
+                        }
                     }
                 }
                 if (isBusy) item(key = "live-response") {
@@ -344,10 +350,21 @@ private sealed interface TimelineRow {
 
 private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
     val rows = mutableListOf<TimelineRow>()
-    messages.forEach { message ->
-        if (message.role == MessageRole.TOOL) rows += TimelineRow.WorkGroup(listOf(message))
-        else rows += TimelineRow.Message(message)
+    val work = mutableListOf<KinoMessage>()
+    fun flushWork() {
+        if (work.isNotEmpty()) {
+            rows += TimelineRow.WorkGroup(work.toList())
+            work.clear()
+        }
     }
+    messages.forEach { message ->
+        if (message.role == MessageRole.TOOL) work += message
+        else {
+            flushWork()
+            rows += TimelineRow.Message(message)
+        }
+    }
+    flushWork()
     return rows
 }
 
@@ -357,23 +374,33 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
     val context = LocalContext.current
     var expanded by rememberSaveable(items.first().id) { mutableStateOf(showDetails) }
     LaunchedEffect(showDetails) { expanded = showDetails }
-    val heading = if (items.size == 1) items.first().text else "Worked through ${items.size} steps"
+    val heading = toolGroupSummary(items)
+    val working = items.any { it.tool?.status == "Preparing" || it.tool?.status == "Working" }
+    val failed = items.any { it.tool?.status == "Failed" || it.tool?.status == "Error" }
     Surface(
-        modifier = Modifier.fillMaxWidth().border(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f),
-            RoundedCornerShape(18.dp),
-        ).clickable { expanded = !expanded },
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.78f),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (items.any { it.tool?.name == "browser" }) Icons.Rounded.DesktopWindows else Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(17.dp))
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { expanded = !expanded }.padding(horizontal = 3.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val icon = when {
+                    items.any { it.tool?.name == "browser" } -> Icons.Rounded.DesktopWindows
+                    items.all { it.tool?.name == "thinking" } -> Icons.Rounded.Psychology
+                    else -> Icons.Rounded.Terminal
+                }
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(9.dp))
-                Text(heading, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(items.last().tool?.status ?: "Done", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(5.dp))
+                Text(heading, style = MaterialTheme.typography.labelLarge, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (working) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.8.dp)
+                    Spacer(Modifier.width(6.dp))
+                } else if (failed) {
+                    Text("Failed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
                 Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             AnimatedVisibility(expanded) {
@@ -384,8 +411,8 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
                     items.forEachIndexed { index, message ->
                         if (index > 0) Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(message.text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                            Text(message.tool?.name ?: "Tool", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(message.text, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                            Text(message.tool?.status.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (message.tool?.name == "search") {
                             val sources = remember(message.tool.detail) { SearchSourceCodec.decode(message.tool.detail) }
@@ -446,16 +473,9 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
                                 Text(message.tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall)
                             }
                         } else if (message.tool?.name == "thinking") {
-                            val preview = remember(message.tool.detail) { latestThinkingLines(message.tool.detail) }
-                            if (preview.isNotBlank()) {
+                            if (message.tool.detail.isNotBlank()) {
                                 Spacer(Modifier.height(3.dp))
-                                Text(
-                                    preview,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                MarkdownText(message.tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
                             }
                         } else if (!message.tool?.detail.isNullOrBlank()) {
                             Spacer(Modifier.height(3.dp))
@@ -468,12 +488,20 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
     }
 }
 
-private fun latestThinkingLines(detail: String): String {
-    val pieces = detail.takeLast(1_200).lines()
-        .flatMap { line -> line.split(Regex("(?<=[.!?])\\s+")) }
-        .map(String::trim)
-        .filter(String::isNotBlank)
-    return pieces.takeLast(2).joinToString("\n").takeLast(360)
+private fun toolGroupSummary(items: List<KinoMessage>): String {
+    val counts = items.groupingBy { it.tool?.name.orEmpty() }.eachCount()
+    val labels = buildList {
+        counts["thinking"]?.let { add(if (it == 1) "Thought" else "Thought $it times") }
+        counts["browser"]?.let { add(if (it == 1) "Browsed the web" else "Browsed $it pages") }
+        counts["search"]?.let { add(if (it == 1) "Searched the web" else "Searched $it times") }
+        counts["search_chat"]?.let { add(if (it == 1) "Searched this chat" else "Searched this chat $it times") }
+        counts["calculator"]?.let { add(if (it == 1) "Used calculator" else "Used calculator $it times") }
+        counts["date_time"]?.let { add("Checked date and time") }
+        counts["html_to_pdf"]?.let { add(if (it == 1) "Created PDF" else "Created $it PDFs") }
+        counts.filterKeys { it !in setOf("thinking", "browser", "search", "search_chat", "calculator", "date_time", "html_to_pdf") }
+            .values.sum().takeIf { it > 0 }?.let { add(if (it == 1) "Used a tool" else "Used $it tools") }
+    }
+    return labels.joinToString(" and ").ifBlank { items.firstOrNull()?.text ?: "Agent activity" }
 }
 
 @Composable

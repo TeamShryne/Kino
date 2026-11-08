@@ -28,7 +28,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.net.InetAddress
@@ -571,10 +570,20 @@ class KinoBrowserSession {
 
     private suspend fun snapshot(tab: Tab): PageSnapshot {
         val raw = evaluate(tab.view, EXTRACT_PAGE_SCRIPT)
-        val jsonText = try {
-            when (val decoded = JSONTokener(raw).nextValue()) { is String -> decoded; else -> decoded.toString() }
-        } catch (_: JSONException) { error("Could not read this page. Wait for it to finish and try browser(action=\"read\").") }
-        val json = JSONObject(jsonText)
+        val json = runCatching {
+            when (val decoded = JSONTokener(raw).nextValue()) {
+                is JSONObject -> decoded
+                is String -> JSONObject(decoded)
+                else -> null // WebView returns JSON literal null if the document changes during evaluation.
+            }
+        }.getOrNull() ?: runCatching {
+            val fallback = evaluate(tab.view, """JSON.stringify({title:document.title||'',url:location.href,text:((document.body&&document.body.innerText)||'').replace(/\s+/g,' ').trim().slice(0,1300),textStart:0,textLength:((document.body&&document.body.innerText)||'').length,actions:[],images:[]})""")
+            when (val decoded = JSONTokener(fallback).nextValue()) {
+                is JSONObject -> decoded
+                is String -> JSONObject(decoded)
+                else -> null
+            }
+        }.getOrNull() ?: JSONObject().put("title", tab.title).put("url", tab.url).put("text", "The page is still changing. Use browser(action=\"wait_for\") or read again.").put("textStart", 0).put("textLength", 0)
         val actionsJson = json.optJSONArray("actions") ?: JSONArray()
         val actions = buildList {
             for (i in 0 until actionsJson.length()) {
