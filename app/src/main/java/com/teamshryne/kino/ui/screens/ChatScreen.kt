@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DesktopWindows
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Psychology
@@ -141,6 +142,8 @@ fun ChatScreen(
     onRemoveAttachment: (String) -> Unit,
     onStop: () -> Unit,
     onProviderSettings: () -> Unit,
+    browserOpen: Boolean,
+    onToggleBrowser: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
@@ -196,6 +199,7 @@ fun ChatScreen(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") } },
                 title = { Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
+                    IconButton(onClick = onToggleBrowser) { Icon(Icons.Rounded.DesktopWindows, if (browserOpen) "Close Kino Browser" else "Open Kino Browser", tint = if (browserOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Chat actions") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -365,7 +369,7 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(17.dp))
+                Icon(if (items.any { it.tool?.name == "browser" }) Icons.Rounded.DesktopWindows else Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(9.dp))
                 Text(heading, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(items.last().tool?.status ?: "Done", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -597,9 +601,7 @@ private fun Composer(
                 if (selected?.supportsThinking == true) {
                     ComposerOptionRow(Icons.Rounded.Psychology, "Thinking", "Let Kino reason before replying", thinkingEnabled) { onThinkingChange(!thinkingEnabled) }
                 }
-                if (selected?.supportsSearch == true) {
-                    ComposerOptionRow(Icons.Rounded.TravelExplore, "Web search", "Search the web for this reply", searchEnabled) { onSearchChange(!searchEnabled) }
-                }
+                ComposerOptionRow(Icons.Rounded.TravelExplore, "Web browsing", "Let Kino use its shared browser for this reply", searchEnabled) { onSearchChange(!searchEnabled) }
                 Box {
                     ComposerOptionRow(
                         icon = Icons.Rounded.Chat,

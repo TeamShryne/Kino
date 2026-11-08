@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.teamshryne.kino.data.ConversationRepository
 import com.teamshryne.kino.data.LocalConversationRepository
 import com.teamshryne.kino.data.local.KinoDatabase
+import com.teamshryne.kino.data.browser.KinoBrowserSession
+import com.teamshryne.kino.data.browser.BrowserUiState
 import com.teamshryne.kino.data.libraries.RuntimeLibraries
 import com.teamshryne.kino.data.libraries.LibraryState
 import com.teamshryne.kino.data.provider.DeepSeekCoreClient
@@ -49,6 +51,10 @@ class KinoViewModel(
     private val preferences = application.getSharedPreferences("kino-settings", 0)
     private val libraryManager = RuntimeLibraries(application)
     private val provider = DeepSeekCoreClient(application)
+    val browserSession = KinoBrowserSession()
+    val browserState: StateFlow<BrowserUiState> = browserSession.state
+    private val _browserOpen = MutableStateFlow(false)
+    val browserOpen: StateFlow<Boolean> = _browserOpen.asStateFlow()
     private val _libraries = MutableStateFlow<List<LibraryState>>(emptyList())
     val libraries: StateFlow<List<LibraryState>> = _libraries.asStateFlow()
     private val _libraryBusy = MutableStateFlow<String?>(null)
@@ -64,6 +70,11 @@ class KinoViewModel(
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
+        browse = { arguments ->
+            _browserOpen.value = true
+            kotlinx.coroutines.delay(100)
+            browserSession.execute(arguments)
+        },
     )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())
@@ -146,6 +157,10 @@ class KinoViewModel(
 
     fun dismissCorePrompt() { preferences.edit().putBoolean("core_prompt_seen", true).apply(); _firstRunCorePrompt.value = false }
     fun dismissPdfPrompt() { _pdfLibraryPrompt.value = false }
+
+    fun openBrowser() { _browserOpen.value = true }
+    fun toggleBrowser() { if (_browserOpen.value) closeBrowser() else openBrowser() }
+    fun closeBrowser() { _browserOpen.value = false; browserSession.setUserControl(false) }
 
     fun refresh() = viewModelScope.launch {
         _chats.value = conversations.chats()
@@ -300,6 +315,8 @@ class KinoViewModel(
 
     fun closeChat() {
         stopGeneration()
+        _browserOpen.value = false
+        browserSession.setUserControl(false)
         _activeChat.value = null
         _messages.value = emptyList()
         refresh()
@@ -347,7 +364,7 @@ class KinoViewModel(
         val active = previous.copy(
             modelType = model.id,
             thinkingEnabled = _thinkingEnabled.value && model.supportsThinking,
-            searchEnabled = _searchEnabled.value && model.supportsSearch,
+            searchEnabled = _searchEnabled.value,
         )
         conversations.saveProviderState(active)
         completionCancellation = AtomicBoolean(false)
@@ -370,7 +387,11 @@ class KinoViewModel(
                     conversations.saveProviderState(active.copy(sessionId = session))
                 }
                 var toolProtocolVersion = active.toolProtocolVersion
-                var nextPrompt = if (toolProtocolVersion == 0) ToolCallProtocol.firstPrompt(body) else body
+                var nextPrompt = when (toolProtocolVersion) {
+                    0 -> ToolCallProtocol.firstPrompt(body)
+                    1 -> ToolCallProtocol.browserUpgradePrompt(body)
+                    else -> body
+                }
                 var toolCalls = 0
                 while (true) {
                     val turnText = StringBuilder()
@@ -398,7 +419,8 @@ class KinoViewModel(
                         modelType = model.id,
                         prompt = nextPrompt,
                         thinking = active.thinkingEnabled,
-                        search = active.searchEnabled,
+                        // Provider search is intentionally off. Kino's browser tool returns a bounded, reusable result within the same local-tool loop.
+                        search = false,
                         fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
                         cancelled = completionCancellation ?: AtomicBoolean(false),
                         onEvent = { event ->
@@ -432,7 +454,7 @@ class KinoViewModel(
                     session = result.optString("session_id", session)
                     parent = result.optLong("response_message_id", parent)
                     usage = result.optLong("accumulated_token_usage", usage)
-                    toolProtocolVersion = 1
+                    toolProtocolVersion = 2
                     conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                     val streamedText = turnText.toString()
                     val rawTurn = responseFragmentText
@@ -455,7 +477,7 @@ class KinoViewModel(
                     val liveId = if (pendingToolName == call.name) pendingToolId ?: startLocalTool(chatId, call.name, label, summary) else startLocalTool(chatId, call.name, label, summary)
                     finishLocalTool(liveId, "Working", summary)
                     val toolResult = try {
-                        toolRegistry.execute(chatId, call.name, call.arguments)
+                        toolRegistry.execute(chatId, call.name, call.arguments, browserEnabled = active.searchEnabled)
                     } catch (error: Exception) {
                         if (completionCancellation?.get() == true) throw error
                         if (call.name == "html_to_pdf" && error.message?.contains("Install the PDF renderer", true) == true) _pdfLibraryPrompt.value = true
@@ -817,6 +839,7 @@ class KinoViewModel(
 
     override fun onCleared() {
         stopGeneration()
+        browserSession.destroy()
         provider.close()
         super.onCleared()
     }

@@ -1,6 +1,8 @@
 package com.teamshryne.kino
 
 import android.os.Bundle
+import android.os.Build
+import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -14,6 +16,7 @@ import com.teamshryne.kino.ui.theme.KinoTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) WebView.setDataDirectorySuffix("kino-browser")
         enableEdgeToEdge()
         setContent {
             val model: KinoViewModel = viewModel()

@@ -2,6 +2,7 @@ package com.teamshryne.kino.data.tools
 
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
+import com.teamshryne.kino.data.browser.KinoBrowserSession
 import org.json.JSONObject
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -14,8 +15,9 @@ data class LocalToolResult(val name: String, val label: String, val detail: Stri
 class LocalToolRegistry(
     private val messages: suspend (String) -> List<KinoMessage>,
     private val renderPdf: suspend (String, String) -> String,
+    private val browse: suspend (JSONObject) -> String,
 ) {
-    suspend fun execute(chatId: String, name: String, arguments: JSONObject): LocalToolResult {
+    suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
         val spec = toolSpec(name) ?: error("Unknown tool: $name")
         val keys = arguments.keys().asSequence().toSet()
         require(keys.all { it in spec.allowedArguments }) { "Unexpected argument for $name." }
@@ -39,6 +41,21 @@ class LocalToolRegistry(
                 stringArgument("title", false)
                 stringArgument("html", true)
             }
+            "browser" -> {
+                stringArgument("action", true)
+                require(browserEnabled) { "Web browsing is turned off. Ask the user to enable Web browsing in Message options." }
+                when (arguments.getString("action")) {
+                    "open" -> { stringArgument("url", true); if (arguments.has("new_tab")) require(arguments.opt("new_tab") is Boolean) }
+                    "click" -> stringArgument("element_id", true)
+                    "type" -> { stringArgument("element_id", true); stringArgument("text", true) }
+                    "scroll" -> { stringArgument("direction", false); if (arguments.has("pages")) require(arguments.opt("pages") is Number) }
+                    "read" -> stringArgument("query", false)
+                    "tabs" -> stringArgument("tab_id", false)
+                    "images", "back", "close_tab" -> Unit
+                    else -> error("Unsupported browser action.")
+                }
+                if (arguments.has("tab_id")) stringArgument("tab_id", false)
+            }
         }
         val result = when (name) {
         "calculator" -> LocalToolResult(name, "Used calculator", Calculator.evaluate(arguments.getString("expression")))
@@ -55,6 +72,7 @@ class LocalToolRegistry(
             val filename = renderPdf(title, html)
             LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).toString())
         }
+        "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
         else -> error("Unknown tool: $name")
         }
         return result
@@ -112,6 +130,7 @@ class LocalToolRegistry(
             ToolSpec("date_time", "date_time(timezone?: string): current time in an IANA timezone; defaults to device timezone", setOf("timezone")),
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
             ToolSpec("html_to_pdf", "html_to_pdf(title: string, html: string): render self-contained HTML as a shareable PDF; JavaScript and network resources are disabled", setOf("title", "html")),
+            ToolSpec("browser", "browser(action: open|read|click|type|scroll|back|tabs|images|close_tab, url?, element_id?, text?, query?, direction?, pages?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled", setOf("action", "url", "element_id", "text", "query", "direction", "pages", "tab_id", "new_tab")),
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
@@ -121,6 +140,7 @@ class LocalToolRegistry(
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
             "html_to_pdf" -> "Created PDF"
+            "browser" -> "Browsed website"
             else -> "Used tool"
         }
         private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == name }
@@ -130,6 +150,16 @@ class LocalToolRegistry(
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"
             "html_to_pdf" -> "Working on PDF" to "Preparing ${arguments.optString("title").ifBlank { "document" }.take(100)}"
+            "browser" -> "Browsing the web" to when (arguments.optString("action")) {
+                "open" -> "Opening ${arguments.optString("url").take(100)}"
+                "click" -> "Following page control ${arguments.optString("element_id").take(16)}"
+                "type" -> "Filling a visible, non-password field"
+                "scroll" -> "Reading the next page section"
+                "tabs" -> "Checking open tabs"
+                "images" -> "Collecting visible image URLs"
+                "back" -> "Going back one page"
+                else -> "Reading the current page"
+            }
             else -> "Running tool" to "Validating request"
         }
     }
