@@ -33,6 +33,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import java.net.InetAddress
 import java.net.URI
+import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
@@ -72,6 +73,8 @@ class KinoBrowserSession {
         private const val MAX_ACTIONS = 12
         private const val MAX_IMAGES = 6
         private val ids = AtomicLong(0)
+        private const val NEW_TAB_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>New tab</title><style>
+          :root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 0%,#27335a 0%,#111522 48%,#0b0d12 100%);color:#f3f5ff;font:16px system-ui,sans-serif}.card{width:min(520px,90vw);padding:34px 30px;border:1px solid #ffffff20;border-radius:24px;background:#151925cc;box-shadow:0 24px 80px #0005}.brand{color:#9bb1ff;font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:12px}h1{font-size:30px;margin:12px 0 8px}p{color:#b7bdcf;line-height:1.6;margin:0}.hint{margin-top:24px;padding:14px 16px;border-radius:14px;background:#ffffff0b;color:#d5daea;font-size:14px}</style></head><body><main class="card"><div class="brand">Kino Browser</div><h1>Where to next?</h1><p>Search the web or enter a website address in the bar below.</p><div class="hint">Your browser session is shared with Kino when you enable Web browsing for a reply.</div></main></body></html>"""
         private val EXTRACT_PAGE_SCRIPT = """(() => {
           const clean=s=>(s||'').replace(/\s+/g,' ').trim();
           const body=document.body;
@@ -95,6 +98,7 @@ class KinoBrowserSession {
         val view: WebView,
         var title: String = "New tab",
         var url: String = "",
+        var isStartPage: Boolean = true,
         var loading: Boolean = false,
         var progress: Int = 0,
         var navigation: CompletableDeferred<Unit>? = null,
@@ -127,9 +131,12 @@ class KinoBrowserSession {
     fun attach(context: Context, container: FrameLayout) {
         hostContext = context
         host = container
-        if (tabs.isEmpty()) createTab(context, activate = true)
         renderActiveView()
         publish()
+    }
+
+    fun ensureTab() {
+        if (tabs.isEmpty()) hostContext?.let { createTab(it, activate = true) }
     }
 
     fun renderInto(container: FrameLayout) {
@@ -143,20 +150,39 @@ class KinoBrowserSession {
         if (!enabled) _state.value = _state.value.copy(message = null)
     }
 
-    fun userNavigate(rawUrl: String) {
+    fun userNavigate(rawUrl: String, searchEngineTemplate: String) {
         setUserControl(true)
+        _state.value = _state.value.copy(message = null)
         val tab = activeTab() ?: hostContext?.let { createTab(it, activate = true) } ?: return
-        val url = validateUrl(rawUrl)
+        val input = rawUrl.trim()
+        if (input.isEmpty()) {
+            _state.value = _state.value.copy(message = "Enter a search or website address.")
+            return
+        }
+        val candidate = if (looksLikeAddress(input)) input else {
+            if (!searchEngineTemplate.startsWith("https://") || !(searchEngineTemplate.contains("%s") || searchEngineTemplate.contains("{query}"))) {
+                _state.value = _state.value.copy(message = "Choose a secure search URL containing %s or {query}.")
+                return
+            }
+            val encoded = URLEncoder.encode(input, Charsets.UTF_8.name())
+            searchEngineTemplate.replace("%s", encoded).replace("{query}", encoded)
+        }
+        val url = validateUrl(candidate)
         if (url == null) {
             _state.value = _state.value.copy(message = "Enter a public HTTPS website address.")
             return
         }
         tab.error = null
+        tab.isStartPage = false
         tab.navigation = CompletableDeferred()
         tab.loading = true
         tab.view.loadUrl(url)
         publish()
     }
+
+    private fun looksLikeAddress(input: String): Boolean =
+        input.startsWith("https://", true) || input.startsWith("http://", true) || input.startsWith("www.", true) ||
+            Regex("^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+(?:[:][0-9]{1,5})?(?:/.*)?$").matches(input)
 
     fun goBack() { setUserControl(true); activeTab()?.let { if (it.view.canGoBack()) it.view.goBack() } }
     fun goForward() { setUserControl(true); activeTab()?.let { if (it.view.canGoForward()) it.view.goForward() } }
@@ -191,8 +217,9 @@ class KinoBrowserSession {
                 require(rawUrl.length <= 2_048) { "URL is too long." }
                 require(rawUrl.isNotEmpty()) { "browser(action=\"open\") needs a URL." }
                 val url = validateUrl(rawUrl) ?: error("Only public HTTPS websites can be opened.")
-                val target = if (arguments.optBoolean("new_tab", false)) createTab(requireNotNull(hostContext), activate = true) else activeTab() ?: createTab(requireNotNull(hostContext), activate = true)
+                val target = if (arguments.optBoolean("new_tab", false)) createTab(requireNotNull(hostContext), activate = true, showStartPage = false) else activeTab() ?: createTab(requireNotNull(hostContext), activate = true, showStartPage = false)
                 target.error = null
+                target.isStartPage = false
                 target.loading = true
                 target.navigation = CompletableDeferred()
                 target.view.loadUrl(url)
@@ -248,7 +275,7 @@ class KinoBrowserSession {
         }.bounded()
     }
 
-    private fun createTab(context: Context, activate: Boolean): Tab {
+    private fun createTab(context: Context, activate: Boolean, showStartPage: Boolean = true): Tab {
         require(tabs.size < MAX_TABS) { "Kino Browser supports up to $MAX_TABS open tabs." }
         val id = "t${ids.incrementAndGet()}"
         val webView = WebView(context)
@@ -257,6 +284,7 @@ class KinoBrowserSession {
         tabs += tab
         if (activate || activeId == null) activeId = id
         renderActiveView()
+        if (showStartPage) webView.loadDataWithBaseURL(null, NEW_TAB_HTML, "text/html", "UTF-8", null)
         publish()
         return tab
     }
@@ -299,7 +327,7 @@ class KinoBrowserSession {
                 val context = hostContext ?: return false
                 val allowedByAgentClick = tabFor(view)?.popupAllowedUntil?.let { it > android.os.SystemClock.elapsedRealtime() } == true
                 if (tabs.size >= MAX_TABS || (!isUserGesture && !allowedByAgentClick)) return false
-                val popup = createTab(context, activate = true)
+                val popup = createTab(context, activate = true, showStartPage = false)
                 val transport = resultMsg.obj as? WebView.WebViewTransport ?: run { closeTab(popup.id); return false }
                 transport.webView = popup.view
                 resultMsg.sendToTarget()
@@ -318,7 +346,8 @@ class KinoBrowserSession {
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 tabFor(view)?.let { tab ->
-                    tab.url = url
+                    if (url != "about:blank" && !url.startsWith("data:")) tab.isStartPage = false
+                    tab.url = if (tab.isStartPage) "" else url
                     tab.loading = true
                     tab.error = null
                     if (tab.navigation == null || tab.navigation?.isCompleted == true) tab.navigation = CompletableDeferred()
@@ -328,11 +357,20 @@ class KinoBrowserSession {
 
             override fun onPageFinished(view: WebView, url: String) {
                 tabFor(view)?.let { tab ->
-                    tab.url = url
+                    if (url != "about:blank" && !url.startsWith("data:")) tab.isStartPage = false
+                    tab.url = if (tab.isStartPage) "" else url
                     tab.title = view.title?.take(160).orEmpty().ifBlank { Uri.parse(url).host ?: "Website" }
                     tab.loading = false
                     tab.progress = 100
                     tab.navigation?.complete(Unit)
+                    publish()
+                }
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                tabFor(view)?.let { tab ->
+                    if (url != "about:blank" && !url.startsWith("data:")) tab.isStartPage = false
+                    tab.url = if (tab.isStartPage) "" else url
                     publish()
                 }
             }
@@ -423,7 +461,7 @@ class KinoBrowserSession {
             }
         }
         return PageSnapshot(
-            json.optString("title").take(160), json.optString("url"), json.optString("text").take(MAX_PAGE_TEXT_CHARS),
+            json.optString("title").take(160), if (tab.isStartPage) "" else json.optString("url"), json.optString("text").take(MAX_PAGE_TEXT_CHARS),
             json.optInt("textStart"), json.optInt("textLength"), actions, images,
         )
     }

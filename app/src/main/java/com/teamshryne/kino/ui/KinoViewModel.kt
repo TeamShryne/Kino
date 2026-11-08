@@ -43,7 +43,6 @@ class KinoViewModel(
     application: Application,
     private val conversations: ConversationRepository,
 ) : AndroidViewModel(application) {
-    private companion object { const val MAX_LOCAL_TOOL_CALLS = 4 }
     constructor(application: Application) : this(
         application,
         LocalConversationRepository(KinoDatabase(application)),
@@ -71,7 +70,6 @@ class KinoViewModel(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
         browse = { arguments ->
-            _browserOpen.value = true
             kotlinx.coroutines.delay(100)
             browserSession.execute(arguments)
         },
@@ -390,6 +388,7 @@ class KinoViewModel(
                 var nextPrompt = when (toolProtocolVersion) {
                     0 -> ToolCallProtocol.firstPrompt(body)
                     1 -> ToolCallProtocol.browserUpgradePrompt(body)
+                    2 -> ToolCallProtocol.unlimitedToolsUpgradePrompt(body)
                     else -> body
                 }
                 var toolCalls = 0
@@ -454,7 +453,7 @@ class KinoViewModel(
                     session = result.optString("session_id", session)
                     parent = result.optLong("response_message_id", parent)
                     usage = result.optLong("accumulated_token_usage", usage)
-                    toolProtocolVersion = 2
+                    toolProtocolVersion = 3
                     conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                     val streamedText = turnText.toString()
                     val rawTurn = responseFragmentText
@@ -466,10 +465,6 @@ class KinoViewModel(
                         _streamingText.value = if (rawTurn.trim().startsWith(ToolCallProtocol.OPEN)) {
                             "I couldn't read the tool request. Please try again."
                         } else rawTurn
-                        break
-                    }
-                    if (toolCalls >= MAX_LOCAL_TOOL_CALLS) {
-                        _streamingText.value = "I reached the limit of $MAX_LOCAL_TOOL_CALLS tool calls for this reply. Please ask me to continue."
                         break
                     }
                     val (label, summary) = LocalToolRegistry.progress(call.name, call.arguments)
