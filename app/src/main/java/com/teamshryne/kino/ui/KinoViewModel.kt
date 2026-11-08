@@ -394,13 +394,13 @@ class KinoViewModel(
             var parent = active.parentMessageId
             var lastResponseMessageCheckpoint = AtomicLong(parent)
             var usage = active.contextTokens
+            var toolProtocolVersion = active.toolProtocolVersion
             try {
                 if (session.isBlank()) {
                     session = provider.createSession().optString("id")
                     check(session.isNotBlank()) { "DeepSeek did not return a chat session." }
                     conversations.saveProviderState(active.copy(sessionId = session))
                 }
-                var toolProtocolVersion = active.toolProtocolVersion
                 var nextPrompt = when (toolProtocolVersion) {
                     0 -> ToolCallProtocol.firstPrompt(body)
                     1 -> ToolCallProtocol.browserUpgradePrompt(body)
