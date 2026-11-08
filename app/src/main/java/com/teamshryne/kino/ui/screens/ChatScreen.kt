@@ -199,7 +199,7 @@ fun ChatScreen(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") } },
                 title = { Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
-                    IconButton(onClick = onToggleBrowser) { Icon(Icons.Rounded.DesktopWindows, if (browserOpen) "Close Kino Browser" else "Open Kino Browser", tint = if (browserOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = onToggleBrowser) { Icon(Icons.Rounded.DesktopWindows, if (browserOpen) "Close Kino Browser" else "Open Kino Browser", tint = if (browserOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Chat actions") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -445,6 +445,18 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
                             } else {
                                 Text(message.tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall)
                             }
+                        } else if (message.tool?.name == "thinking") {
+                            val preview = remember(message.tool.detail) { latestThinkingLines(message.tool.detail) }
+                            if (preview.isNotBlank()) {
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    preview,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         } else if (!message.tool?.detail.isNullOrBlank()) {
                             Spacer(Modifier.height(3.dp))
                             MarkdownText(message.tool?.detail.orEmpty(), tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
@@ -454,6 +466,14 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
             }
         }
     }
+}
+
+private fun latestThinkingLines(detail: String): String {
+    val pieces = detail.takeLast(1_200).lines()
+        .flatMap { line -> line.split(Regex("(?<=[.!?])\\s+")) }
+        .map(String::trim)
+        .filter(String::isNotBlank)
+    return pieces.takeLast(2).joinToString("\n").takeLast(360)
 }
 
 @Composable

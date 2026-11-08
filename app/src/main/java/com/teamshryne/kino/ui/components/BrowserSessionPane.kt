@@ -38,9 +38,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,6 +102,10 @@ fun BrowserSessionPane(
     }
     val host = remember { mutableStateOf<BrowserHostFrameLayout?>(null) }
     val engineName = builtinSearchEngines.firstOrNull { it.template == searchTemplate }?.name ?: "Custom"
+    val iconColors = IconButtonDefaults.iconButtonColors(
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.95f),
+    )
 
     LaunchedEffect(visible) {
         if (visible) session.ensureTab()
@@ -132,7 +138,7 @@ fun BrowserSessionPane(
                 TextButton(onClick = { session.setUserControl(!state.userHasControl) }) {
                     Text(if (state.userHasControl) "Return to Kino" else "Take control")
                 }
-                IconButton(onClick = onClose, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Close, "Close browser") }
+                IconButton(onClick = onClose, colors = iconColors, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Close, "Close browser") }
             }
 
             AndroidView(
@@ -183,11 +189,11 @@ fun BrowserSessionPane(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(tab.title.ifBlank { "New tab" }, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                if (state.tabs.size > 1) IconButton(onClick = { session.closeUserTab(tab.id) }, modifier = Modifier.size(26.dp)) { Icon(Icons.Rounded.Close, "Close tab", modifier = Modifier.size(14.dp)) }
+                                if (state.tabs.size > 1) IconButton(onClick = { editingAddress = false; session.closeUserTab(tab.id) }, colors = iconColors, modifier = Modifier.size(26.dp)) { Icon(Icons.Rounded.Close, "Close tab", modifier = Modifier.size(14.dp)) }
                             }
                         }
                     }
-                    IconButton(onClick = { editingAddress = false; session.newUserTab(); address = "" }, enabled = state.tabs.size < KinoBrowserSession.MAX_TABS, modifier = Modifier.size(34.dp)) {
+                    IconButton(onClick = { editingAddress = false; session.newUserTab(); address = "" }, enabled = state.tabs.size < KinoBrowserSession.MAX_TABS, colors = iconColors, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Rounded.Add, "New tab")
                     }
                 }
@@ -198,15 +204,15 @@ fun BrowserSessionPane(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                IconButton(onClick = { editingAddress = false; session.goBack() }, enabled = state.canGoBack, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowBack, "Back") }
-                IconButton(onClick = { editingAddress = false; session.goForward() }, enabled = state.canGoForward, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowForward, "Forward") }
-                IconButton(onClick = { editingAddress = false; session.reload() }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { editingAddress = false; session.goBack() }, enabled = state.canGoBack, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowBack, "Back") }
+                IconButton(onClick = { editingAddress = false; session.goForward() }, enabled = state.canGoForward, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowForward, "Forward") }
+                IconButton(onClick = { editingAddress = false; session.reload() }, colors = iconColors, modifier = Modifier.size(36.dp)) {
                     if (state.loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, "Reload")
                 }
                 Box {
                     TextButton(onClick = { engineMenuOpen = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
-                        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(17.dp))
+                        Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(17.dp))
                         Text(engineName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
                         Icon(Icons.Rounded.ExpandMore, null, modifier = Modifier.size(17.dp))
                     }
@@ -236,6 +242,13 @@ fun BrowserSessionPane(
                     shape = RoundedCornerShape(16.dp),
                     placeholder = { Text("Search or enter a URL", maxLines = 1) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
                     keyboardActions = KeyboardActions(onGo = {
                         editingAddress = false
                         session.userNavigate(address, searchTemplate)
@@ -244,6 +257,7 @@ fun BrowserSessionPane(
                 IconButton(
                     onClick = { editingAddress = false; session.userNavigate(address, searchTemplate) },
                     enabled = address.isNotBlank(),
+                    colors = iconColors,
                     modifier = Modifier.size(38.dp),
                 ) { Icon(Icons.Rounded.OpenInBrowser, "Search or open address") }
             }

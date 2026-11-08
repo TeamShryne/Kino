@@ -38,6 +38,9 @@ import org.json.JSONArray
 import java.util.concurrent.atomic.AtomicBoolean
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+
+private const val MAX_THINKING_TRACE_CHARS = 1_200
 
 class KinoViewModel(
     application: Application,
@@ -216,7 +219,7 @@ class KinoViewModel(
             val last = current.lastOrNull()
             val activity = last?.tool
             if (last != null && activity?.name == "thinking") {
-                current.dropLast(1) + last.copy(tool = activity.copy(detail = activity.detail + content))
+                current.dropLast(1) + last.copy(tool = activity.copy(detail = (activity.detail + content).takeLast(MAX_THINKING_TRACE_CHARS)))
             } else {
                 current + KinoMessage(
                     id = nextLiveToolId--,
@@ -351,6 +354,19 @@ class KinoViewModel(
             _providerError.value = "Could not load available DeepSeek models. Check your connection in Settings."
             return@launch
         }
+        var previous = conversations.providerState(chatId) ?: ChatProviderState(chatId = chatId, modelType = model.id)
+        val previousMessages = conversations.messages(chatId)
+        val interruptedCompletion = previousMessages.lastOrNull()?.tool?.name == "error"
+        if (interruptedCompletion && previous.sessionId.isNotBlank()) {
+            try {
+                val (remoteHead, remoteUsage) = latestRemoteHead(previous.sessionId)
+                previous = previous.copy(parentMessageId = remoteHead, contextTokens = maxOf(previous.contextTokens, remoteUsage))
+                conversations.saveProviderState(previous)
+            } catch (error: Exception) {
+                _providerError.value = "Kino couldn't resync this DeepSeek chat after the interrupted response. Check your connection and send again. ${error.message?.take(120).orEmpty()}"
+                return@launch
+            }
+        }
         val filesForMessage = _attachedFiles.value.toList()
         val userMetadata = if (filesForMessage.isEmpty()) null else JSONObject()
             .put("files", JSONArray().apply { filesForMessage.forEach { (id, name) -> put(JSONObject().put("id", id).put("name", name)) } })
@@ -358,7 +374,6 @@ class KinoViewModel(
         conversations.sendUserMessage(chatId, body, userMetadata)
         _messages.value = conversations.messages(chatId)
         _chats.value = conversations.chats()
-        val previous = conversations.providerState(chatId) ?: ChatProviderState(chatId = chatId, modelType = model.id)
         val active = previous.copy(
             modelType = model.id,
             thinkingEnabled = _thinkingEnabled.value && model.supportsThinking,
@@ -377,6 +392,7 @@ class KinoViewModel(
             var toolActivitiesPersisted = false
             var session = active.sessionId
             var parent = active.parentMessageId
+            var lastResponseMessageCheckpoint = AtomicLong(parent)
             var usage = active.contextTokens
             try {
                 if (session.isBlank()) {
@@ -389,10 +405,13 @@ class KinoViewModel(
                     0 -> ToolCallProtocol.firstPrompt(body)
                     1 -> ToolCallProtocol.browserUpgradePrompt(body)
                     2 -> ToolCallProtocol.unlimitedToolsUpgradePrompt(body)
+                    3 -> ToolCallProtocol.unlimitedToolsUpgradePrompt(body)
                     else -> body
                 }
                 var toolCalls = 0
                 while (true) {
+                    val responseMessageCheckpoint = AtomicLong(parent)
+                    lastResponseMessageCheckpoint = responseMessageCheckpoint
                     val turnText = StringBuilder()
                     var responseFragmentText: String? = null
                     var pendingToolName: String? = null
@@ -423,6 +442,9 @@ class KinoViewModel(
                         fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
                         cancelled = completionCancellation ?: AtomicBoolean(false),
                         onEvent = { event ->
+                            event.optLong("response_message_id").takeIf { it > 0 }?.let { id ->
+                                responseMessageCheckpoint.updateAndGet { current -> maxOf(current, id) }
+                            }
                             when (event.optString("kind")) {
                                 "text_delta" -> {
                                     captureResponse(event.optString("content"))
@@ -451,9 +473,9 @@ class KinoViewModel(
                         },
                     )
                     session = result.optString("session_id", session)
-                    parent = result.optLong("response_message_id", parent)
+                    parent = maxOf(result.optLong("response_message_id", parent), responseMessageCheckpoint.get())
                     usage = result.optLong("accumulated_token_usage", usage)
-                    toolProtocolVersion = 3
+                    toolProtocolVersion = 4
                     conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                     val streamedText = turnText.toString()
                     val rawTurn = responseFragmentText
@@ -504,9 +526,27 @@ class KinoViewModel(
                 conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                 _attachedFiles.value = emptyList()
                 _contextTokens.value = usage
+                if (answer.isNotBlank()) closeBrowser()
             } catch (error: Exception) {
-                if (completionCancellation?.get() != true) _providerError.value = error.message?.take(240) ?: "DeepSeek request failed."
+                if (completionCancellation?.get() != true) {
+                    _providerError.value = if (error.hasUnexpectedEof()) {
+                        "DeepSeek ended the response stream early. Kino saved the chat and will resync its history before your next message."
+                    } else error.message?.take(240) ?: "DeepSeek request failed."
+                }
                 val stopped = completionCancellation?.get() == true
+                parent = maxOf(parent, lastResponseMessageCheckpoint.get())
+                if (!stopped && error.hasUnexpectedEof() && session.isNotBlank()) {
+                    runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
+                        parent = remoteHead
+                        usage = maxOf(usage, remoteUsage)
+                    }
+                }
+                conversations.saveProviderState(active.copy(
+                    sessionId = session,
+                    parentMessageId = parent,
+                    contextTokens = usage,
+                    toolProtocolVersion = toolProtocolVersion,
+                ))
                 _streamingTools.update { current -> current.map { message ->
                     val status = message.tool?.status
                     if (status == "Preparing" || status == "Working") {
@@ -543,6 +583,30 @@ class KinoViewModel(
     fun stopGeneration() {
         completionCancellation?.set(true)
         completionJob?.cancel()
+    }
+
+    private suspend fun latestRemoteHead(sessionId: String): Pair<Long, Long> {
+        val response = provider.history(sessionId)
+        val messages = response.optJSONArray("messages") ?: error("DeepSeek did not return chat history.")
+        var messageId = 0L
+        var usage = 0L
+        for (index in 0 until messages.length()) {
+            val message = messages.optJSONObject(index) ?: continue
+            val candidateId = message.optLong("message_id")
+            if (candidateId > 0) messageId = candidateId
+            usage = maxOf(usage, message.optLong("accumulated_token_usage"))
+        }
+        return messageId to usage
+    }
+
+    private fun Throwable.hasUnexpectedEof(): Boolean {
+        var cause: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (cause != null && seen.add(cause)) {
+            if (cause.message?.contains("eof", ignoreCase = true) == true) return true
+            cause = cause.cause
+        }
+        return false
     }
 
     fun attachFiles(uris: List<Uri>) = viewModelScope.launch {
