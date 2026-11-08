@@ -20,6 +20,8 @@ data class LibraryArtifact(val abi: String, val fileName: String, val url: Strin
 data class RuntimeLibrary(val id: String, val name: String, val version: String, val description: String, val format: String, val nativeLibrary: String, val classesFile: String?, val artifacts: List<LibraryArtifact>)
 data class LibraryState(val library: RuntimeLibrary, val installed: Boolean, val installedVersion: String?, val artifact: LibraryArtifact?) {
     val updateAvailable: Boolean get() = installedVersion != null && installedVersion != library.version && artifact != null
+} {
+    val updateAvailable: Boolean get() = installedVersion != null && installedVersion != library.version && artifact != null
 }
 
 class RuntimeLibraries(private val context: Context) {
@@ -125,8 +127,17 @@ class RuntimeLibraries(private val context: Context) {
     private fun destination(library: RuntimeLibrary, artifact: LibraryArtifact) = File(File(root, library.id), "${library.version}/${artifact.abi}")
     private fun downloadText(url: String): String {
         require(url.startsWith("https://raw.githubusercontent.com/TeamShryne/kino-libraries/"))
-        val connection = URL(url).openConnection() as HttpURLConnection
-        try { connection.connectTimeout = 15_000; connection.readTimeout = 20_000; require(connection.responseCode == 200) { "Could not load the library catalog." }; return connection.inputStream.bufferedReader().use { it.readText() } } finally { connection.disconnect() }
+        val refreshedUrl = "$url${if (url.contains('?')) '&' else '?'}kino_refresh=${System.currentTimeMillis()}"
+        val connection = URL(refreshedUrl).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 20_000
+            connection.useCaches = false
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store")
+            connection.setRequestProperty("Pragma", "no-cache")
+            require(connection.responseCode == 200) { "Could not load the library catalog." }
+            return connection.inputStream.bufferedReader().use { it.readText() }
+        } finally { connection.disconnect() }
     }
     private fun sha256(file: File): String { val digest = MessageDigest.getInstance("SHA-256"); file.inputStream().buffered().use { input -> val buffer = ByteArray(64 * 1024); while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }; return digest.digest().joinToString("") { "%02x".format(it) } }
 }
