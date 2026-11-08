@@ -247,11 +247,17 @@ class KinoBrowserSession {
                 pageResult(tab, "form")
             }
             "wait_for" -> {
-                val selector = arguments.optString("selector").take(300)
+                val selector = arguments.optString("selector").ifBlank { arguments.optString("query") }.take(300)
                 val text = arguments.optString("text").take(200)
-                require(selector.isNotBlank() xor text.isNotBlank()) { "Provide exactly one of selector or text." }
-                val state = arguments.optString("state", "visible").lowercase(Locale.ROOT)
-                require(state in setOf("visible", "hidden", "attached", "detached")) { "state must be visible, hidden, attached, or detached." }
+                require(selector.isNotBlank() xor text.isNotBlank()) { "Provide exactly one of selector/query or text." }
+                val requestedState = arguments.optString("state", "visible").lowercase(Locale.ROOT)
+                val state = when (requestedState) {
+                    "appear", "appears", "present" -> "attached"
+                    "disappear", "disappears", "absent" -> "detached"
+                    "not_visible" -> "hidden"
+                    else -> requestedState
+                }
+                require(state in setOf("visible", "hidden", "attached", "detached")) { "state must be visible/appear, hidden/disappear, attached, or detached." }
                 val timeout = arguments.optLong("timeout_ms", 5_000L).coerceIn(100L, 10_000L)
                 val tab = activeTab() ?: error("There is no active browser tab.")
                 val encodedSelector = JSONObject.quote(selector)
@@ -259,13 +265,20 @@ class KinoBrowserSession {
                 val deadline = android.os.SystemClock.elapsedRealtime() + timeout
                 var matched = false
                 while (android.os.SystemClock.elapsedRealtime() < deadline) {
-                    matched = evaluate(tab.view, """(() => {const d=document;const q=$encodedSelector,t=$encodedText;let e=null;try{e=q?d.querySelector(q):null}catch(_){return 'invalid'};const found=q?!!e:(d.body?.innerText||'').includes(t);const visible=!!e&&!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';const ok=${
+                    val expected = when (state) { "visible" -> "visible"; "hidden" -> "!visible"; "attached" -> "found"; else -> "!found" }
+                    val condition = evaluate(tab.view, """(() => {const d=document;const q=$encodedSelector,t=$encodedText;let e=null;try{e=q?d.querySelector(q):null}catch(_){return 'invalid'};const found=q?!!e:(d.body?.innerText||'').includes(t);const visible=!!e&&!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';const ok=$expected;return ok?'yes':'no'})()""")
+                    if (condition == "invalid") error("The selector is invalid. Check it with browser(action=\"query\", selector=\"…\").")
+                    matched = condition == "yes"
                         when (state) { "visible" -> "visible"; "hidden" -> "!visible"; "attached" -> "found"; else -> "!found" }
                     };return ok?'yes':'no'})()""") == "yes"
                     if (matched) break
                     delay(150)
                 }
-                require(matched) { "Timed out waiting for the requested page condition." }
+                require(matched) {
+                    "Timed out after " + timeout + " ms waiting for " +
+                        (if (selector.isNotBlank()) "selector " + selector else "text "" + text + """) +
+                        " to become " + state + "."
+                }
                 pageResult(tab)
             }
             "press_key" -> {
@@ -347,8 +360,15 @@ class KinoBrowserSession {
                 val value = decodeJsString(match.groupValues[2])
                 require(selector.length <= 300 && value.length <= 500) { "Selector or value is too long." }
                 val tab = activeTab() ?: error("There is no active browser tab.")
-                val result = evaluate(tab.view, """(() => {let e;try{e=document.querySelector(${JSONObject.quote(selector)})}catch(_){return 'invalid'};if(!e||!('value' in e)||e.disabled||e.readOnly||/password|hidden/.test((e.type||'').toLowerCase()))return 'blocked';e.focus();e.value=${JSONObject.quote(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'set'})()""")
-                require(result == "set") { "The safe evaluate assignment could not update an editable non-sensitive field." }
+                val selectorJs = JSONObject.quote(selector)
+                val valueJs = JSONObject.quote(value)
+                val result = evaluate(tab.view, """(() => {let e;try{e=document.querySelector($selectorJs)}catch(_){return 'invalid'};if(!e)return 'missing';if(/password|hidden/.test((e.type||'').toLowerCase()))return 'sensitive';if(!('value' in e)||e.disabled||e.readOnly)return 'blocked';e.focus();e.value=$valueJs;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'set'})()""")
+                when (result) {
+                    "set" -> Unit
+                    "missing" -> error("No element matched that selector. Use browser(action='query', selector='…') to inspect the page.")
+                    "sensitive" -> error("Password or hidden fields cannot be updated by the evaluate action.")
+                    else -> error("The selected element is not an editable, enabled value field.")
+                }
                 pageResult(tab, "form")
             }
             "scroll" -> {
@@ -527,8 +547,15 @@ class KinoBrowserSession {
         val encoded = JSONObject.quote(text)
         val documentExpr = documentExpression(frameSelector)
         val query = if (selector.isNotBlank()) JSONObject.quote(selector) else "'[data-kino-action-id=\"$id\"]'"
-        val result = evaluate(tab.view, """(() => { const d=$documentExpr;if(!d)return 'frame';let e;try{e=d.querySelector($query)}catch(_){return 'invalid'};if(!e||!e.isConnected) return 'stale'; const t=(e.type||'').toLowerCase(); if((!['text','email','search','url','tel','number'].includes(t)&&!e.isContentEditable)||e.disabled||e.readOnly) return 'blocked'; e.focus(); if(e.isContentEditable)e.textContent=$encoded;else e.value=$encoded; e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); return 'typed'; })()""")
-        require(result == "typed") { "That field cannot be filled by Kino. Password fields must be entered by you in the browser." }
+        val result = evaluate(tab.view, """(() => { const d=$documentExpr;if(!d)return 'frame';let e;try{e=d.querySelector($query)}catch(_){return 'invalid'};if(!e||!e.isConnected) return 'missing';const t=(e.type||'').toLowerCase(),auto=(e.autocomplete||'').toLowerCase();if(t==='password'||auto.includes('password')||t==='hidden')return 'sensitive';if((!['text','email','search','url','tel','number'].includes(t)&&!e.isContentEditable)||e.disabled||e.readOnly)return 'blocked';e.focus();if(e.isContentEditable)e.textContent=$encoded;else e.value=$encoded;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'typed'; })()""")
+        when (result) {
+            "typed" -> Unit
+            "missing" -> error("No element matched that selector in the current document. Use browser(action='query', selector='…', frame_selector='…') to inspect the page.")
+            "frame" -> error("That iframe is unavailable or cross-origin; Kino can only inspect same-origin iframe content.")
+            "sensitive" -> error("Password fields must be entered by you in the browser.")
+            "blocked" -> error("That element is disabled, read-only, or not an editable text field.")
+            else -> error("The selector is invalid. Use browser(action='query', selector='…') to verify it.")
+        }
         delay(120)
     }
 
