@@ -33,9 +33,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.json.JSONArray
-import java.util.concurrent.atomic.AtomicBoolean
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
@@ -52,8 +52,9 @@ class KinoViewModel(
     )
     private val preferences = application.getSharedPreferences("kino-settings", 0)
     private val libraryManager = RuntimeLibraries(application)
-    private val provider = DeepSeekCoreClient(application)
-    val browserSession = KinoBrowserSession()
+    private val runtime = application as KinoApplication
+    private val provider = runtime.provider
+    val browserSession = runtime.browserSession
     val browserState: StateFlow<BrowserUiState> = browserSession.state
     private val _browserOpen = MutableStateFlow(false)
     val browserOpen: StateFlow<Boolean> = _browserOpen.asStateFlow()
@@ -74,7 +75,7 @@ class KinoViewModel(
         renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
         browse = { arguments ->
             kotlinx.coroutines.delay(100)
-            browserSession.execute(arguments)
+            runtime.browserMutex.withLock { browserSession.execute(arguments) }
         },
     )
     private val credentialStore = provider.credentialStore()
@@ -110,18 +111,55 @@ class KinoViewModel(
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
     private val _streamingTools = MutableStateFlow<List<KinoMessage>>(emptyList())
     val streamingTools: StateFlow<List<KinoMessage>> = _streamingTools.asStateFlow()
-    private var nextLiveToolId = -10L
-    private var liveSearchToolId: Long? = null
+    private val generations = runtime.generations
     private val _contextTokens = MutableStateFlow(0L)
     val contextTokens: StateFlow<Long> = _contextTokens.asStateFlow()
     private val _remoteSessions = MutableStateFlow<List<ProviderSession>>(emptyList())
     val remoteSessions: StateFlow<List<ProviderSession>> = _remoteSessions.asStateFlow()
     private val _attachedFiles = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val attachedFiles: StateFlow<List<Pair<String, String>>> = _attachedFiles.asStateFlow()
-    private var completionCancellation: AtomicBoolean? = null
-    private var completionJob: Job? = null
+
+    private fun generation(chatId: String) = generations.getOrPut(chatId) { ChatGeneration(chatId) }
+    private fun newLiveToolId(@Suppress("UNUSED_PARAMETER") chatId: String) = runtime.nextLiveToolId.getAndDecrement()
+    private fun publishGeneration(chatId: String) {
+        if (_activeChat.value != chatId) return
+        val state = generations[chatId]
+        _streamingText.value = state?.text?.value.orEmpty()
+        _streamingTools.value = state?.tools?.value.orEmpty()
+        _isStreaming.value = state?.let { it.job?.isActive == true && !it.cancelled.get() } == true
+    }
+    private fun generationChanged(chatId: String) {
+        publishGeneration(chatId)
+        _providerBusy.value = generations.values.any { it.job?.isActive == true }
+        runtime.generationRevision.update { GenerationRevision(chatId, runtime.nextGenerationRevision.incrementAndGet()) }
+        val active = generations.values.any { it.job?.isActive == true }
+        val activeCount = generations.values.count { it.job?.isActive == true }
+        val changedCount = runtime.activeGenerationCount != activeCount
+        runtime.activeGenerationCount = activeCount
+        val changedForeground = runtime.serviceForeground.getAndSet(active) != active
+        if (changedForeground || changedCount) KinoGenerationService.update(getApplication(), active)
+    }
+    private fun setLiveText(chatId: String, value: String) {
+        generation(chatId).text.value = value
+        generationChanged(chatId)
+    }
+    private fun updateLiveTools(chatId: String, transform: (List<KinoMessage>) -> List<KinoMessage>) {
+        generation(chatId).tools.update(transform)
+        generationChanged(chatId)
+    }
 
     init {
+        viewModelScope.launch {
+            runtime.generationRevision.collect { revision ->
+                _activeChat.value?.takeIf { it == revision.chatId }?.let { chatId ->
+                    publishGeneration(chatId)
+                    if (generations[chatId] == null) {
+                        _messages.value = conversations.messages(chatId)
+                        _chats.value = conversations.chats()
+                    }
+                }
+            }
+        }
         refresh()
         refreshLibraries()
     }
@@ -169,6 +207,7 @@ class KinoViewModel(
 
     fun openChat(id: String) = viewModelScope.launch {
         _activeChat.value = id
+        publishGeneration(id)
         val loaded = conversations.messages(id)
         if (_activeChat.value == id) _messages.value = loaded
         val state = conversations.providerState(id)
@@ -182,7 +221,7 @@ class KinoViewModel(
 
     private fun startThinkingTool(chatId: String) {
         val message = KinoMessage(
-            id = nextLiveToolId--,
+            id = newLiveToolId(chatId),
             chatId = chatId,
             role = MessageRole.TOOL,
             text = "Thinking",
@@ -190,12 +229,12 @@ class KinoViewModel(
             tool = ToolActivity("thinking", "Working", ""),
             kind = "thinking",
         )
-        _streamingTools.update { it + message }
+        updateLiveTools(chatId) { it + message }
     }
 
     private fun startLocalTool(chatId: String, name: String, label: String, summary: String, status: String = "Working"): Long {
         val message = KinoMessage(
-            id = nextLiveToolId--,
+            id = newLiveToolId(chatId),
             chatId = chatId,
             role = MessageRole.TOOL,
             text = label,
@@ -203,19 +242,20 @@ class KinoViewModel(
             tool = ToolActivity(name, status, summary),
             kind = name,
         )
-        _streamingTools.update { it + message }
+        updateLiveTools(chatId) { it + message }
         return message.id
     }
 
     private fun finishLocalTool(id: Long, status: String, detail: String) {
-        _streamingTools.update { current -> current.map { message ->
+        val owner = generations.values.firstOrNull { state -> state.tools.value.any { it.id == id } } ?: return
+        updateLiveTools(owner.chatId) { current -> current.map { message ->
             if (message.id == id) message.copy(tool = message.tool?.copy(status = status, detail = detail)) else message
         } }
     }
 
     private fun updateAssistantBeforeTool(chatId: String, beforeId: Long?, existingId: Long?, text: String, metadata: String?): Long? {
         if (text.isBlank()) return existingId
-        val eventId = existingId ?: nextLiveToolId--
+        val eventId = existingId ?: newLiveToolId(chatId)
         val message = KinoMessage(
             id = eventId,
             chatId = chatId,
@@ -225,10 +265,10 @@ class KinoViewModel(
             kind = "response",
             metadata = metadata,
         )
-        _streamingTools.update { current ->
+        updateLiveTools(chatId) { current ->
             val existingIndex = current.indexOfFirst { it.id == eventId }
             if (existingIndex >= 0) {
-                return@update current.toMutableList().apply { this[existingIndex] = message }
+                return@updateLiveTools current.toMutableList().apply { this[existingIndex] = message }
             }
             val index = beforeId?.let { id -> current.indexOfFirst { it.id == id } } ?: -1
             if (index < 0) current + message
@@ -238,7 +278,7 @@ class KinoViewModel(
     }
 
     private suspend fun persistStreamingEvents(chatId: String) {
-        _streamingTools.value.toList().forEach { event ->
+        generation(chatId).tools.value.toList().forEach { event ->
             if (event.role == MessageRole.ASSISTANT) {
                 conversations.appendAgentEvent(
                     chatId,
@@ -257,14 +297,14 @@ class KinoViewModel(
 
     private fun appendThinkingTool(chatId: String, content: String) {
         if (content.isEmpty()) return
-        _streamingTools.update { current ->
+        updateLiveTools(chatId) { current ->
             val last = current.lastOrNull()
             val activity = last?.tool
             if (last != null && activity?.name == "thinking") {
                 current.dropLast(1) + last.copy(tool = activity.copy(detail = (activity.detail + content).takeLast(MAX_THINKING_TRACE_CHARS)))
             } else {
                 current + KinoMessage(
-                    id = nextLiveToolId--,
+                    id = newLiveToolId(chatId),
                     chatId = chatId,
                     role = MessageRole.TOOL,
                     text = "Thinking",
@@ -293,7 +333,7 @@ class KinoViewModel(
 
     private fun startSearchTool(chatId: String) {
         val message = KinoMessage(
-            id = nextLiveToolId--,
+            id = newLiveToolId(chatId),
             chatId = chatId,
             role = MessageRole.TOOL,
             text = "Web search",
@@ -301,20 +341,21 @@ class KinoViewModel(
             tool = ToolActivity("search", "Working", SearchSourceCodec.encode(emptyList())),
             kind = "search",
         )
-        liveSearchToolId = message.id
-        _streamingTools.update { it + message }
+        generation(chatId).liveSearchToolId = message.id
+        updateLiveTools(chatId) { it + message }
     }
 
     private fun ensureSearchTool(chatId: String) {
-        val id = liveSearchToolId
-        if (id == null || _streamingTools.value.none { it.id == id }) startSearchTool(chatId)
+        val state = generation(chatId)
+        val id = state.liveSearchToolId
+        if (id == null || state.tools.value.none { it.id == id }) startSearchTool(chatId)
     }
 
     private fun addSearchSources(chatId: String, incoming: List<SearchSource>) {
         ensureSearchTool(chatId)
         if (incoming.isEmpty()) return
-        val id = liveSearchToolId ?: return
-        _streamingTools.update { current ->
+        val id = generation(chatId).liveSearchToolId ?: return
+        updateLiveTools(chatId) { current ->
             current.map { message ->
                 if (message.id != id) message
                 else {
@@ -329,8 +370,8 @@ class KinoViewModel(
 
     private fun mergeOpenedPage(chatId: String, page: SearchSource) {
         ensureSearchTool(chatId)
-        val id = liveSearchToolId ?: return
-        _streamingTools.update { current ->
+        val id = generation(chatId).liveSearchToolId ?: return
+        updateLiveTools(chatId) { current ->
             current.map { message ->
                 if (message.id != id) message
                 else {
@@ -344,8 +385,8 @@ class KinoViewModel(
     private fun appendOpenedPageContent(chatId: String, content: String) {
         if (content.isEmpty()) return
         ensureSearchTool(chatId)
-        val id = liveSearchToolId ?: return
-        _streamingTools.update { current ->
+        val id = generation(chatId).liveSearchToolId ?: return
+        updateLiveTools(chatId) { current ->
             current.map { message ->
                 if (message.id != id) message
                 else {
@@ -357,11 +398,13 @@ class KinoViewModel(
     }
 
     fun closeChat() {
-        stopGeneration()
         _browserOpen.value = false
         browserSession.setUserControl(false)
         _activeChat.value = null
         _messages.value = emptyList()
+        _streamingText.value = ""
+        _streamingTools.value = emptyList()
+        _isStreaming.value = false
         refresh()
     }
 
@@ -372,6 +415,7 @@ class KinoViewModel(
         _contextTokens.value = 0
         _thinkingEnabled.value = false
         _searchEnabled.value = false
+        publishGeneration(id)
         _chats.value = conversations.chats()
     }
 
@@ -387,9 +431,17 @@ class KinoViewModel(
             _providerError.value = "Connect DeepSeek in Settings before sending a message."
             return@launch
         }
-        if (completionJob?.isActive == true) return@launch
         val chatId = _activeChat.value ?: conversations.createChat(body.take(48)).also { _activeChat.value = it }
-        val model = _capabilities.value?.models?.firstOrNull { it.id == _selectedModel.value }
+        val requestedModelId = _selectedModel.value
+        val requestedThinking = _thinkingEnabled.value
+        val requestedSearch = _searchEnabled.value
+        val filesForMessage = _attachedFiles.value.toList()
+        val generation = generation(chatId)
+        if (generation.job?.isActive == true) {
+            if (generation.cancelled.get()) _providerError.value = "Kino is stopping the previous response in this chat. Try sending again in a moment."
+            return@launch
+        }
+        val model = _capabilities.value?.models?.firstOrNull { it.id == requestedModelId }
             ?: _capabilities.value?.models?.firstOrNull { it.isDefault }
             ?: _capabilities.value?.models?.firstOrNull()
         if (model == null) {
@@ -409,28 +461,26 @@ class KinoViewModel(
                 return@launch
             }
         }
-        val filesForMessage = _attachedFiles.value.toList()
         val userMetadata = if (filesForMessage.isEmpty()) null else JSONObject()
             .put("files", JSONArray().apply { filesForMessage.forEach { (id, name) -> put(JSONObject().put("id", id).put("name", name)) } })
             .toString()
         conversations.sendUserMessage(chatId, body, userMetadata)
-        _messages.value = conversations.messages(chatId)
+        if (_activeChat.value == chatId) _messages.value = conversations.messages(chatId)
         _chats.value = conversations.chats()
         val active = previous.copy(
             modelType = model.id,
-            thinkingEnabled = _thinkingEnabled.value && model.supportsThinking,
-            searchEnabled = _searchEnabled.value,
+            thinkingEnabled = requestedThinking && model.supportsThinking,
+            searchEnabled = requestedSearch,
         )
         conversations.saveProviderState(active)
-        completionCancellation = AtomicBoolean(false)
-        _providerBusy.value = true
-        _isStreaming.value = true
+        generation.cancelled.set(false)
         _providerError.value = null
-        _streamingText.value = ""
-        _streamingTools.value = emptyList()
-        nextLiveToolId = -10L
-        liveSearchToolId = null
-        completionJob = viewModelScope.launch {
+        generation.text.value = ""
+        generation.tools.value = emptyList()
+        generation.liveSearchToolId = null
+        generationChanged(chatId)
+        generation.job = runtime.scope.launch {
+            generationChanged(chatId)
             var toolActivitiesPersisted = false
             var session = active.sessionId
             var parent = active.parentMessageId
@@ -474,9 +524,9 @@ class KinoViewModel(
                                 JSONObject().put("session_id", session).put("message_id", parent).toString()
                             }
                             pendingPreludeId = updateAssistantBeforeTool(chatId, pendingToolId, pendingPreludeId, visible, metadata)
-                            _streamingText.value = ""
+                            setLiveText(chatId, "")
                         } else {
-                            _streamingText.value = ToolCallProtocol.visibleText(snapshot)
+                            setLiveText(chatId, ToolCallProtocol.visibleText(snapshot))
                         }
                     }
                     fun captureResponse(content: String) {
@@ -493,7 +543,7 @@ class KinoViewModel(
                         // Provider search is intentionally off. Kino's browser tool returns a bounded, reusable result within the same local-tool loop.
                         search = false,
                         fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
-                        cancelled = completionCancellation ?: AtomicBoolean(false),
+                        cancelled = generation.cancelled,
                         onEvent = { event ->
                             event.optLong("response_message_id").takeIf { it > 0 }?.let { id ->
                                 responseMessageCheckpoint.updateAndGet { current -> maxOf(current, id) }
@@ -519,12 +569,13 @@ class KinoViewModel(
                                         handleProviderFragment(chatId, fragment)
                                     }
                                 }
-                                "usage" -> _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
+                                "usage" -> if (_activeChat.value == chatId) _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
                                 "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
                                 "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
                             }
                         },
                     )
+                    if (generation.cancelled.get()) error("Generation stopped by user.")
                     session = result.optString("session_id", session)
                     parent = maxOf(result.optLong("response_message_id", parent), responseMessageCheckpoint.get())
                     usage = result.optLong("accumulated_token_usage", usage)
@@ -537,9 +588,9 @@ class KinoViewModel(
                     val call = ToolCallProtocol.parse(rawTurn)
                     if (call == null) {
                         pendingToolId?.let { finishLocalTool(it, "Failed", "The model returned an invalid tool request.") }
-                        _streamingText.value = if (rawTurn.trim().startsWith(ToolCallProtocol.OPEN)) {
+                        setLiveText(chatId, if (rawTurn.trim().startsWith(ToolCallProtocol.OPEN)) {
                             "I couldn't read the tool request. Please try again."
-                        } else rawTurn
+                        } else rawTurn)
                         break
                     }
                     val preToolMessage = ToolCallProtocol.visibleText(rawTurn).trim()
@@ -550,23 +601,24 @@ class KinoViewModel(
                         pendingPreludeId = updateAssistantBeforeTool(chatId, pendingToolId, pendingPreludeId, preToolMessage, metadata)
                     }
                     val (label, summary) = LocalToolRegistry.progress(call.name, call.arguments)
-                    _streamingText.value = ""
+                    setLiveText(chatId, "")
                     val liveId = if (pendingToolName == call.name) pendingToolId ?: startLocalTool(chatId, call.name, label, summary) else startLocalTool(chatId, call.name, label, summary)
                     finishLocalTool(liveId, "Working", summary)
                     val toolResult = try {
                         toolRegistry.execute(chatId, call.name, call.arguments, browserEnabled = active.searchEnabled)
                     } catch (error: Exception) {
-                        if (completionCancellation?.get() == true) throw error
+                        if (generation.cancelled.get()) throw error
                         if (call.name == "html_to_pdf" && error.message?.contains("Install the PDF renderer", true) == true) _pdfLibraryPrompt.value = true
                         val reason = error.message?.take(500) ?: "Tool failed."
                         finishLocalTool(liveId, "Failed", reason)
                         null
                     }
+                    if (generation.cancelled.get()) error("Generation stopped by user.")
                     if (toolResult != null) finishLocalTool(liveId, "Done", toolResult.detail)
-                    nextPrompt = ToolCallProtocol.resultPrompt(call.name, toolResult?.detail ?: _streamingTools.value.firstOrNull { it.id == liveId }?.tool?.detail.orEmpty(), failed = toolResult == null)
+                    nextPrompt = ToolCallProtocol.resultPrompt(call.name, toolResult?.detail ?: generation.tools.value.firstOrNull { it.id == liveId }?.tool?.detail.orEmpty(), failed = toolResult == null)
                     toolCalls++
                 }
-                val answer = _streamingText.value
+                val answer = generation.text.value
                 persistStreamingEvents(chatId)
                 toolActivitiesPersisted = true
                 if (answer.isNotBlank()) {
@@ -574,16 +626,18 @@ class KinoViewModel(
                     conversations.appendAgentEvent(chatId, MessageRole.ASSISTANT, answer, kind = "response", metadata = metadata, tokenUsage = usage)
                 }
                 conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
-                _attachedFiles.value = emptyList()
-                _contextTokens.value = usage
-                if (answer.isNotBlank()) closeBrowser()
+                if (_activeChat.value == chatId) {
+                    _attachedFiles.value = emptyList()
+                    _contextTokens.value = usage
+                }
+                if (answer.isNotBlank() && _activeChat.value == chatId) closeBrowser()
             } catch (error: Exception) {
-                if (completionCancellation?.get() != true) {
+                if (!generation.cancelled.get()) {
                     _providerError.value = if (error.hasUnexpectedEof()) {
                         "DeepSeek ended the response stream early. Kino saved the chat and will resync its history before your next message."
                     } else error.message?.take(240) ?: "DeepSeek request failed."
                 }
-                val stopped = completionCancellation?.get() == true
+                val stopped = generation.cancelled.get()
                 parent = maxOf(parent, lastResponseMessageCheckpoint.get())
                 if (!stopped && error.hasUnexpectedEof() && session.isNotBlank()) {
                     runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
@@ -597,7 +651,7 @@ class KinoViewModel(
                     contextTokens = usage,
                     toolProtocolVersion = toolProtocolVersion,
                 ))
-                _streamingTools.update { current -> current.map { message ->
+                updateLiveTools(chatId) { current -> current.map { message ->
                     val status = message.tool?.status
                     if (status == "Preparing" || status == "Working") {
                         message.copy(tool = message.tool?.copy(status = if (stopped) "Stopped" else "Failed", detail = if (stopped) "Stopped by user." else error.message?.take(500) ?: "Request failed."))
@@ -607,28 +661,31 @@ class KinoViewModel(
                     persistStreamingEvents(chatId)
                     toolActivitiesPersisted = true
                 }
-                if (_streamingText.value.isNotBlank()) {
+                if (generation.text.value.isNotBlank()) {
                     val metadata = if (session.isNotBlank() && parent > 0) JSONObject().put("session_id", session).put("message_id", parent).toString() else null
-                    conversations.appendAgentEvent(chatId, MessageRole.ASSISTANT, _streamingText.value, kind = "response", metadata = metadata, tokenUsage = usage)
+                    conversations.appendAgentEvent(chatId, MessageRole.ASSISTANT, generation.text.value, kind = "response", metadata = metadata, tokenUsage = usage)
                 }
-                if (completionCancellation?.get() != true) {
+                if (!generation.cancelled.get()) {
                     conversations.appendAgentEvent(chatId, MessageRole.TOOL, "Request failed", ToolActivity("error", "Failed", _providerError.value.orEmpty()), "error")
                 }
             } finally {
                 if (_activeChat.value == chatId) _messages.value = conversations.messages(chatId)
                 _chats.value = conversations.chats()
-                _streamingTools.value = emptyList()
-                _providerBusy.value = false
-                _isStreaming.value = false
-                _streamingText.value = ""
-                completionCancellation = null
+                generation.tools.value = emptyList()
+                generation.text.value = ""
+                generation.job = null
+                generations.remove(chatId, generation)
+                generationChanged(chatId)
             }
         }
+        generationChanged(chatId)
     }
 
     fun stopGeneration() {
-        completionCancellation?.set(true)
-        completionJob?.cancel()
+        val chatId = _activeChat.value ?: return
+        val generation = generations[chatId] ?: return
+        generation.cancelled.set(true)
+        generationChanged(chatId)
     }
 
     private suspend fun latestRemoteHead(sessionId: String): Pair<Long, Long> {
@@ -922,6 +979,11 @@ class KinoViewModel(
         }
 
     fun deleteChat(id: String) = viewModelScope.launch {
+        generations[id]?.let { generation ->
+            generation.cancelled.set(true)
+            generationChanged(id)
+            generation.job?.join()
+        }
         val remote = conversations.providerState(id)?.sessionId
         if (!remote.isNullOrBlank() && credentialStore.load() != null) {
             runCatching { provider.deleteSessions(listOf(remote)) }
@@ -948,9 +1010,6 @@ class KinoViewModel(
     }
 
     override fun onCleared() {
-        stopGeneration()
-        browserSession.destroy()
-        provider.close()
         super.onCleared()
     }
 }
