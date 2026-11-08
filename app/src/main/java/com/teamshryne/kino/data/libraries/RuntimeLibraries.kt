@@ -18,7 +18,9 @@ private val supportedAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
 data class LibraryArtifact(val abi: String, val fileName: String, val url: String, val sha256: String, val size: Long)
 data class RuntimeLibrary(val id: String, val name: String, val version: String, val description: String, val format: String, val nativeLibrary: String, val classesFile: String?, val artifacts: List<LibraryArtifact>)
-data class LibraryState(val library: RuntimeLibrary, val installed: Boolean, val installedVersion: String?, val artifact: LibraryArtifact?)
+data class LibraryState(val library: RuntimeLibrary, val installed: Boolean, val installedVersion: String?, val artifact: LibraryArtifact?) {
+    val updateAvailable: Boolean get() = installedVersion != null && installedVersion != library.version && artifact != null
+}
 
 class RuntimeLibraries(private val context: Context) {
     companion object {

@@ -175,7 +175,7 @@ class KinoViewModel(
                 if (!_firstRunCorePrompt.value) preferences.edit().putBoolean("core_prompt_seen", true).apply()
                 else dismissCorePrompt()
                 if (_deepSeekConnected.value) { refreshCapabilities(); refreshRemoteSessions() }
-            } else if (core?.installedVersion != null) {
+            } else if (core?.updateAvailable == true) {
                 _firstRunCorePrompt.value = true
             }
         } catch (error: Exception) { _libraryError.value = error.message?.take(240) ?: "Could not load available libraries." }
@@ -184,6 +184,10 @@ class KinoViewModel(
     fun installLibrary(id: String) = viewModelScope.launch {
         val item = _libraries.value.firstOrNull { it.library.id == id }?.library ?: run { _libraryError.value = "Library is not in the catalog."; return@launch }
         if (_libraryBusy.value != null) return@launch
+        if (id == "kino-core" && runtime.activeGenerationCount > 0) {
+            _libraryError.value = "Wait for active chats to finish before updating Kino Core."
+            return@launch
+        }
         _libraryBusy.value = id; _libraryProgress.value = 0f; _libraryError.value = null
         try {
             libraryManager.install(item) { received, total -> _libraryProgress.value = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f }

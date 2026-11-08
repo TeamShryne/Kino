@@ -93,11 +93,22 @@ fun KinoApp(model: KinoViewModel) {
         )
     }
 
+    val kinoCoreState = libraryStates.firstOrNull { it.library.id == "kino-core" }
     if (firstRunCorePrompt) AlertDialog(
         onDismissRequest = model::dismissCorePrompt,
-        title = { Text("Install Kino Core") },
-        text = { Text("Kino Core is needed for chat, search, and file support. It will download once and stay in this app’s private storage.") },
-        confirmButton = { TextButton(onClick = { model.installLibrary("kino-core") }) { Text(if (libraryBusy == "kino-core") "Installing…" else "Install") } },
+        title = { Text(if (kinoCoreState?.updateAvailable == true) "Update Kino Core" else "Install Kino Core") },
+        text = {
+            Text(if (kinoCoreState?.updateAvailable == true) {
+                "Kino Core ${kinoCoreState.library.version} is available (installed: ${kinoCoreState.installedVersion}). Update it from private app storage to get the latest fixes. Restart Kino after updating to load the new core."
+            } else {
+                "Kino Core is needed for chat, search, and file support. It will download once and stay in this app’s private storage."
+            })
+        },
+        confirmButton = { TextButton(onClick = { model.installLibrary("kino-core") }) { Text(when {
+            libraryBusy == "kino-core" -> "Installing…"
+            kinoCoreState?.updateAvailable == true -> "Update"
+            else -> "Install"
+        }) } },
         dismissButton = { TextButton(onClick = model::dismissCorePrompt) { Text("Later") } },
     )
     if (pdfLibraryPrompt) AlertDialog(
