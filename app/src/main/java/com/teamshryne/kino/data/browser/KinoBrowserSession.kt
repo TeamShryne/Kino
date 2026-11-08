@@ -265,7 +265,9 @@ class KinoBrowserSession {
             "wait_for" -> {
                 val selector = arguments.optString("selector").ifBlank { arguments.optString("query") }.take(300)
                 val text = arguments.optString("text").take(200)
-                require(selector.isNotBlank() xor text.isNotBlank()) { "Provide exactly one of selector/query or text." }
+                val elementId = arguments.optString("element_id")
+                require(listOf(selector.isNotBlank(), text.isNotBlank(), elementId.isNotBlank()).count { it } == 1) { "Provide exactly one of element_id, selector/query, or text." }
+                if (elementId.isNotBlank()) require(elementId.matches(Regex("a[0-9]{1,6}"))) { "Use a control ID from the latest page summary." }
                 val requestedState = arguments.optString("state", "visible").lowercase(Locale.ROOT)
                 val state = when (requestedState) {
                     "appear", "appears", "present" -> "attached"
@@ -276,7 +278,8 @@ class KinoBrowserSession {
                 require(state in setOf("visible", "hidden", "attached", "detached")) { "state must be visible/appear, hidden/disappear, attached, or detached." }
                 val timeout = arguments.optLong("timeout_ms", 5_000L).coerceIn(100L, 10_000L)
                 val tab = activeTab() ?: error("There is no active browser tab.")
-                val encodedSelector = JSONObject.quote(selector)
+                val effectiveSelector = if (elementId.isNotBlank()) "[data-kino-action-id=\"$elementId\"]" else selector
+                val encodedSelector = JSONObject.quote(effectiveSelector)
                 val encodedText = JSONObject.quote(text)
                 val deadline = android.os.SystemClock.elapsedRealtime() + timeout
                 var matched = false
