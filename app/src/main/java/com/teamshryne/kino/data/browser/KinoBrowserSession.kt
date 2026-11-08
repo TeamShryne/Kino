@@ -269,14 +269,12 @@ class KinoBrowserSession {
                     val condition = evaluate(tab.view, """(() => {const d=document;const q=$encodedSelector,t=$encodedText;let e=null;try{e=q?d.querySelector(q):null}catch(_){return 'invalid'};const found=q?!!e:(d.body?.innerText||'').includes(t);const visible=!!e&&!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';const ok=$expected;return ok?'yes':'no'})()""")
                     if (condition == "invalid") error("The selector is invalid. Check it with browser(action=\"query\", selector=\"…\").")
                     matched = condition == "yes"
-                        when (state) { "visible" -> "visible"; "hidden" -> "!visible"; "attached" -> "found"; else -> "!found" }
-                    };return ok?'yes':'no'})()""") == "yes"
                     if (matched) break
                     delay(150)
                 }
                 require(matched) {
                     "Timed out after " + timeout + " ms waiting for " +
-                        (if (selector.isNotBlank()) "selector " + selector else "text "" + text + """) +
+                        (if (selector.isNotBlank()) "selector '" + selector + "'" else "text '" + text + "'") +
                         " to become " + state + "."
                 }
                 pageResult(tab)
