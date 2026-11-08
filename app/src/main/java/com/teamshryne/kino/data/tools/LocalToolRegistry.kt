@@ -46,12 +46,21 @@ class LocalToolRegistry(
                 require(browserEnabled) { "Web browsing is turned off. Ask the user to enable Web browsing in Message options." }
                 when (arguments.getString("action")) {
                     "open" -> { stringArgument("url", true); if (arguments.has("new_tab")) require(arguments.opt("new_tab") is Boolean) }
-                    "click" -> stringArgument("element_id", true)
-                    "type" -> { stringArgument("element_id", true); stringArgument("text", true) }
+                    "click" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("frame_selector", false); require(arguments.has("element_id") || arguments.has("selector")) { "click needs element_id or selector." } }
+                    "type" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("frame_selector", false); stringArgument("text", true); require(arguments.has("element_id") || arguments.has("selector")) { "type needs element_id or selector." } }
                     "scroll" -> { stringArgument("direction", false); if (arguments.has("pages")) require(arguments.opt("pages") is Number) }
                     "read" -> stringArgument("query", false)
                     "tabs" -> stringArgument("tab_id", false)
-                    "images", "back", "close_tab" -> Unit
+                    "wait_for" -> { stringArgument("selector", false); stringArgument("text", false); stringArgument("state", false); require(arguments.has("selector") xor arguments.has("text")) { "wait_for needs exactly one of selector or text." }; if (arguments.has("timeout_ms")) require(arguments.opt("timeout_ms") is Number) }
+                    "press_key" -> { stringArgument("key", true); stringArgument("element_id", false) }
+                    "hover" -> stringArgument("element_id", true)
+                    "select_option" -> { stringArgument("selector", true); stringArgument("value", true) }
+                    "query" -> { stringArgument("selector", true); stringArgument("mode", false); stringArgument("frame_selector", false) }
+                    "element_state" -> stringArgument("selector", true)
+                    "links", "tables" -> { if (arguments.has("offset")) require(arguments.opt("offset") is Number); if (arguments.has("limit")) require(arguments.opt("limit") is Number) }
+                    "refresh", "forward", "images", "back", "close_tab" -> Unit
+                    "viewport" -> stringArgument("mode", true)
+                    "evaluate" -> stringArgument("script", true)
                     else -> error("Unsupported browser action.")
                 }
                 if (arguments.has("tab_id")) stringArgument("tab_id", false)
@@ -130,7 +139,7 @@ class LocalToolRegistry(
             ToolSpec("date_time", "date_time(timezone?: string): current time in an IANA timezone; defaults to device timezone", setOf("timezone")),
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
             ToolSpec("html_to_pdf", "html_to_pdf(title: string, html: string): render self-contained HTML as a shareable PDF; JavaScript and network resources are disabled", setOf("title", "html")),
-            ToolSpec("browser", "browser(action: open|read|click|type|scroll|back|tabs|images|close_tab, url?, element_id?, text?, query?, direction?, pages?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled", setOf("action", "url", "element_id", "text", "query", "direction", "pages", "tab_id", "new_tab")),
+            ToolSpec("browser", "browser(action: open|read|click|type|scroll|wait_for|press_key|hover|select_option|query|element_state|links|tables|refresh|forward|back|tabs|images|close_tab|viewport|evaluate, url?, element_id?, selector?, frame_selector?, text?, state?, key?, value?, mode?, script?, query?, direction?, pages?, offset?, limit?, timeout_ms?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled. query supports CSS/XPath and same-origin iframe selection; links and tables return paged structured data; evaluate only accepts a safe editable-field assignment", setOf("action", "url", "element_id", "selector", "frame_selector", "text", "query", "direction", "pages", "tab_id", "new_tab", "state", "timeout_ms", "key", "value", "mode", "script", "offset", "limit")),
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
@@ -154,6 +163,18 @@ class LocalToolRegistry(
                 "open" -> "Opening ${arguments.optString("url").take(100)}"
                 "click" -> "Following page control ${arguments.optString("element_id").take(16)}"
                 "type" -> "Filling a visible, non-password field"
+                "wait_for" -> "Waiting for page content"
+                "press_key" -> "Sending ${arguments.optString("key").take(20)} key"
+                "hover" -> "Hovering over a page control"
+                "select_option" -> "Choosing a form option"
+                "query" -> "Inspecting selected page elements"
+                "element_state" -> "Checking a page control's state"
+                "links" -> "Collecting page links"
+                "tables" -> "Extracting table data"
+                "refresh" -> "Refreshing the page"
+                "forward" -> "Going forward one page"
+                "viewport" -> "Switching to ${arguments.optString("mode").take(20)} view"
+                "evaluate" -> "Updating a form field safely"
                 "scroll" -> "Reading the next page section"
                 "tabs" -> "Checking open tabs"
                 "images" -> "Collecting visible image URLs"

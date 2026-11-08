@@ -72,6 +72,8 @@ class KinoBrowserSession {
         private const val NAVIGATION_TIMEOUT_MS = 25_000L
         private const val MAX_ACTIONS = 12
         private const val MAX_IMAGES = 6
+        private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        private val SAFE_VALUE_ASSIGNMENT = Regex("""document\.querySelector\(("(?:\\.|[^"])*")\)\.value\s*=\s*("(?:\\.|[^"])*")""")
         private val ids = AtomicLong(0)
         private const val NEW_TAB_HTML = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>New tab</title><style>
           :root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 0%,#27335a 0%,#111522 48%,#0b0d12 100%);color:#f3f5ff;font:16px system-ui,sans-serif}.card{width:min(520px,90vw);padding:34px 30px;border:1px solid #ffffff20;border-radius:24px;background:#151925cc;box-shadow:0 24px 80px #0005}.brand{color:#9bb1ff;font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:12px}h1{font-size:30px;margin:12px 0 8px}p{color:#b7bdcf;line-height:1.6;margin:0}.hint{margin-top:24px;padding:14px 16px;border-radius:14px;background:#ffffff0b;color:#d5daea;font-size:14px}</style></head><body><main class="card"><div class="brand">Kino Browser</div><h1>Where to next?</h1><p>Search the web or enter a website address in the bar below.</p><div class="hint">Your browser session is shared with Kino when you enable Web browsing for a reply.</div></main></body></html>"""
@@ -85,8 +87,8 @@ class KinoBrowserSession {
           const start=Math.floor(fraction*maxStart);
           let n=window.__kinoActionIdCounter||0;
           const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&parseFloat(s.opacity)>0};
-          const controls=Array.from(document.querySelectorAll('a[href],button,[role=button],summary,input[type=button],input[type=submit],input[type=text],input[type=email],input[type=search],input[type=url],input[type=tel],input[type=number]')).filter(visible);
-          const actions=controls.map(e=>{let id=e.getAttribute('data-kino-action-id');if(!id){id='a'+(++n);e.setAttribute('data-kino-action-id',id)};const tag=e.tagName.toLowerCase(), role=e.matches('input[type=text],input[type=email],input[type=search],input[type=url],input[type=tel],input[type=number]')?'input':(tag==='a'?'link':(tag==='button'?'button':(e.type==='submit'?'button':(e.getAttribute('role')||tag))));const buttonValue=(e.type==='submit'||e.type==='button')?e.value:'';const label=clean(e.getAttribute('aria-label')||e.innerText||e.getAttribute('placeholder')||e.getAttribute('title')||buttonValue||e.name).slice(0,100);return {id,role,label,url:tag==='a'&&/^https:/i.test(e.href)?e.href:''}}).slice(0,40);
+          const controls=Array.from(document.querySelectorAll('a[href],button,[role=button],summary,input[type=button],input[type=submit],input[type=text],input[type=email],input[type=search],input[type=url],input[type=tel],input[type=number],[contenteditable=true],[role=textbox]')).filter(visible);
+          const actions=controls.map(e=>{let id=e.getAttribute('data-kino-action-id');if(!id){id='a'+(++n);e.setAttribute('data-kino-action-id',id)};const tag=e.tagName.toLowerCase(), editable=e.isContentEditable||e.getAttribute('role')==='textbox', role=editable?'input':(e.matches('input[type=text],input[type=email],input[type=search],input[type=url],input[type=tel],input[type=number]')?'input':(tag==='a'?'link':(tag==='button'?'button':(e.type==='submit'?'button':(e.getAttribute('role')||tag))));const buttonValue=(e.type==='submit'||e.type==='button')?e.value:'';const label=clean(e.getAttribute('aria-label')||e.innerText||e.getAttribute('placeholder')||e.getAttribute('title')||buttonValue||e.name).slice(0,100);return {id,role,label,url:tag==='a'&&/^https:/i.test(e.href)?e.href:''}}).slice(0,40);
           window.__kinoActionIdCounter=n;
           const images=Array.from(document.images).filter(visible).map((e,i)=>({id:'i'+(i+1),alt:clean(e.alt).slice(0,100),url:e.currentSrc||e.src})).filter(e=>/^https:\/\//i.test(e.url)).slice(0,16);
           return JSON.stringify({title:document.title||'',url:location.href,text:full.slice(start,start+span),textStart:start,textLength:full.length,actions,images});
@@ -229,18 +231,125 @@ class KinoBrowserSession {
             "read" -> pageResult(activeTab() ?: error("There is no active browser tab. Open a website first."), arguments.optString("query").trim())
             "click" -> {
                 val elementId = arguments.optString("element_id")
-                require(elementId.matches(Regex("a[0-9]{1,6}"))) { "Use a link or button ID from the latest page summary." }
+                val selector = arguments.optString("selector")
+                require(elementId.matches(Regex("a[0-9]{1,6}")) || selector.isNotBlank()) { "Use a link or button ID from the latest page summary, or provide a CSS selector." }
                 val tab = activeTab() ?: error("There is no active browser tab. Open a website first.")
-                clickElement(tab, elementId)
+                clickElement(tab, elementId, selector, arguments.optString("frame_selector"))
                 pageResult(activeTab() ?: tab)
             }
             "type" -> {
                 val elementId = arguments.optString("element_id")
-                require(elementId.matches(Regex("a[0-9]{1,6}"))) { "Use an input ID from the latest page summary." }
+                val selector = arguments.optString("selector")
+                require(elementId.matches(Regex("a[0-9]{1,6}")) || selector.isNotBlank()) { "Use an input ID from the latest page summary, or provide a CSS selector." }
                 val text = arguments.optString("text")
                 require(text.length <= 300) { "Text entry is limited to 300 characters at a time." }
                 val tab = activeTab() ?: error("There is no active browser tab. Open a website first.")
-                typeInto(tab, elementId, text)
+                typeInto(tab, elementId, text, selector, arguments.optString("frame_selector"))
+                pageResult(tab, "form")
+            }
+            "wait_for" -> {
+                val selector = arguments.optString("selector").take(300)
+                val text = arguments.optString("text").take(200)
+                require(selector.isNotBlank() xor text.isNotBlank()) { "Provide exactly one of selector or text." }
+                val state = arguments.optString("state", "visible").lowercase(Locale.ROOT)
+                require(state in setOf("visible", "hidden", "attached", "detached")) { "state must be visible, hidden, attached, or detached." }
+                val timeout = arguments.optLong("timeout_ms", 5_000L).coerceIn(100L, 10_000L)
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val encodedSelector = JSONObject.quote(selector)
+                val encodedText = JSONObject.quote(text)
+                val deadline = android.os.SystemClock.elapsedRealtime() + timeout
+                var matched = false
+                while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                    matched = evaluate(tab.view, """(() => {const d=document;const q=$encodedSelector,t=$encodedText;let e=null;try{e=q?d.querySelector(q):null}catch(_){return 'invalid'};const found=q?!!e:(d.body?.innerText||'').includes(t);const visible=!!e&&!!(e.getClientRects().length)&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';const ok=${
+                        when (state) { "visible" -> "visible"; "hidden" -> "!visible"; "attached" -> "found"; else -> "!found" }
+                    };return ok?'yes':'no'})()""") == "yes"
+                    if (matched) break
+                    delay(150)
+                }
+                require(matched) { "Timed out waiting for the requested page condition." }
+                pageResult(tab)
+            }
+            "press_key" -> {
+                val key = arguments.optString("key").lowercase(Locale.ROOT)
+                require(key in setOf("enter", "tab", "escape", "arrowup", "arrowdown", "arrowleft", "arrowright")) { "Unsupported key. Use Enter, Tab, Escape, or an arrow key." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val id = arguments.optString("element_id")
+                val elementSelector = JSONObject.quote("[data-kino-action-id=\"$id\"]")
+                val result = evaluate(tab.view, """(() => {const e=${if (id.isBlank()) "document.activeElement" else "document.querySelector($elementSelector)"};if(!e)return 'missing';const key=${JSONObject.quote(key)};const names={enter:'Enter',tab:'Tab',escape:'Escape',arrowup:'ArrowUp',arrowdown:'ArrowDown',arrowleft:'ArrowLeft',arrowright:'ArrowRight'};e.focus();if(key==='tab'){const a=Array.from(document.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex="-1"])')).filter(x=>!x.disabled&&x.getClientRects().length);const i=a.indexOf(e);a[(i+1+a.length)%a.length]?.focus();return 'sent'};e.dispatchEvent(new KeyboardEvent('keydown',{key:names[key],bubbles:true,cancelable:true}));e.dispatchEvent(new KeyboardEvent('keyup',{key:names[key],bubbles:true,cancelable:true}));return 'sent'})()""")
+                require(result == "sent") { "Could not send that key to the selected page control." }
+                delay(150)
+                pageResult(tab)
+            }
+            "hover" -> {
+                val id = arguments.optString("element_id")
+                require(id.matches(Regex("a[0-9]{1,6}"))) { "Use a control ID from the latest page summary." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val result = evaluate(tab.view, """(() => {const e=document.querySelector('[data-kino-action-id="${id}"]');if(!e)return 'stale';e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));e.dispatchEvent(new MouseEvent('mouseenter',{bubbles:false}));return 'hovered'})()""")
+                require(result == "hovered") { "That page control is no longer available. Read the page again." }
+                delay(120)
+                pageResult(tab)
+            }
+            "select_option" -> {
+                val selector = arguments.optString("selector").take(300)
+                val value = arguments.optString("value").take(300)
+                require(selector.isNotBlank() && value.isNotBlank()) { "select_option needs selector and value." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val result = evaluate(tab.view, """(() => {let e;try{e=document.querySelector(${JSONObject.quote(selector)})}catch(_){return 'invalid'};if(!e||e.tagName!=='SELECT'||e.disabled)return 'unavailable';const v=${JSONObject.quote(value)};if(!Array.from(e.options).some(o=>o.value===v&&!o.disabled))return 'option';e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'selected'})()""")
+                require(result == "selected") { "Could not select that option; verify the selector and option value." }
+                pageResult(tab)
+            }
+            "query" -> {
+                val selector = arguments.optString("selector").take(500)
+                require(selector.isNotBlank()) { "query needs a CSS selector or XPath expression." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                queryElements(tab, selector, arguments.optString("mode", "css"), arguments.optString("frame_selector"))
+            }
+            "element_state" -> {
+                val selector = arguments.optString("selector").take(300)
+                require(selector.isNotBlank()) { "element_state needs a CSS selector." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val doc = documentExpression(arguments.optString("frame_selector"))
+                val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});let e;try{e=d.querySelector(${JSONObject.quote(selector)})}catch(_){return JSON.stringify({error:'invalid selector'})};if(!e)return JSON.stringify({found:false});const sensitive=e.matches('input[type=password],input[type=hidden]');return JSON.stringify({found:true,value:'value' in e&&!sensitive?String(e.value).slice(0,300):null,checked:'checked' in e?!!e.checked:null,disabled:'disabled' in e?!!e.disabled:null,tag:e.tagName.toLowerCase()})})()"""
+                "Element state: ${evaluate(tab.view, script)}"
+            }
+            "links", "tables" -> {
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val offset = arguments.optInt("offset", 0).coerceAtLeast(0)
+                val limit = arguments.optInt("limit", 5).coerceIn(1, 5)
+                val script = if (action == "links") """JSON.stringify((()=>{const a=Array.from(document.querySelectorAll('a[href]')).filter(e=>/^https?:\/\//i.test(e.href));return {total:a.length,offset:$offset,items:a.slice($offset,$offset+$limit).map(e=>({text:(e.innerText||e.getAttribute('aria-label')||'').trim().slice(0,250),url:e.href.slice(0,1000)}))}})())""" else """JSON.stringify((()=>{const rows=Array.from(document.querySelectorAll('table')).flatMap((t,ti)=>Array.from(t.rows).map((r,ri)=>({table:ti+1,row:ri+1,cells:Array.from(r.cells).map(c=>(c.innerText||'').trim().slice(0,180))})));return {total:rows.length,offset:$offset,items:rows.slice($offset,$offset+$limit)}})())"""
+                "${if (action == "links") "Links" else "Tables"}: ${evaluate(tab.view, script)}"
+            }
+            "refresh", "forward" -> {
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                if (action == "forward") require(tab.view.canGoForward()) { "This tab has no next page." }
+                val oldNavigation = tab.navigation
+                if (action == "refresh") tab.view.reload() else tab.view.goForward()
+                awaitChangedNavigation(tab, oldNavigation)
+                pageResult(tab)
+            }
+            "viewport" -> {
+                val mode = arguments.optString("mode").lowercase(Locale.ROOT)
+                require(mode in setOf("mobile", "desktop")) { "mode must be mobile or desktop." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                tab.view.settings.apply {
+                    useWideViewPort = true
+                    loadWithOverviewMode = mode == "mobile"
+                    userAgentString = if (mode == "desktop") DESKTOP_USER_AGENT else WebSettings.getDefaultUserAgent(requireNotNull(hostContext))
+                }
+                tab.view.reload()
+                awaitChangedNavigation(tab, tab.navigation)
+                pageResult(tab)
+            }
+            "evaluate" -> {
+                val script = arguments.optString("script")
+                require(script.length <= 1_000) { "The safe evaluate snippet is limited to 1,000 characters." }
+                val match = SAFE_VALUE_ASSIGNMENT.matchEntire(script.trim()) ?: error("evaluate only supports document.querySelector(\"CSS selector\").value = \"text\" assignments; arbitrary JavaScript is disabled.")
+                val selector = decodeJsString(match.groupValues[1])
+                val value = decodeJsString(match.groupValues[2])
+                require(selector.length <= 300 && value.length <= 500) { "Selector or value is too long." }
+                val tab = activeTab() ?: error("There is no active browser tab.")
+                val result = evaluate(tab.view, """(() => {let e;try{e=document.querySelector(${JSONObject.quote(selector)})}catch(_){return 'invalid'};if(!e||!('value' in e)||e.disabled||e.readOnly||/password|hidden/.test((e.type||'').toLowerCase()))return 'blocked';e.focus();e.value=${JSONObject.quote(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'set'})()""")
+                require(result == "set") { "The safe evaluate assignment could not update an editable non-sensitive field." }
                 pageResult(tab, "form")
             }
             "scroll" -> {
@@ -271,7 +380,7 @@ class KinoBrowserSession {
                 closeTab(tabId ?: tab.id)
                 "Closed tab.\n" + tabsResult(null)
             }
-            else -> error("Unknown browser action. Use open, read, click, type, scroll, back, tabs, images, or close_tab.")
+            else -> error("Unsupported browser action.")
         }.bounded()
     }
 
@@ -396,11 +505,13 @@ class KinoBrowserSession {
         }
     }
 
-    private suspend fun clickElement(tab: Tab, id: String) {
+    private suspend fun clickElement(tab: Tab, id: String, selector: String = "", frameSelector: String = "") {
         require(_state.value.activeTabId == tab.id) { "This tab is inactive; call browser(action=\"tabs\", tab_id=\"${tab.id}\") first." }
         val old = tab.navigation
         tab.popupAllowedUntil = android.os.SystemClock.elapsedRealtime() + 2_000L
-        val result = evaluate(tab.view, """(() => { const e = document.querySelector('[data-kino-action-id="$id"]'); if (!e || !e.isConnected) return 'stale'; const s=getComputedStyle(e); if (s.display==='none'||s.visibility==='hidden'||e.disabled) return 'stale'; if(e.tagName==='A'&&e.protocol!=='https:') return 'blocked'; const label=(e.innerText||e.getAttribute('aria-label')||e.value||'').toLowerCase(); if(/\b(pay|purchase|buy now|place order|confirm order|submit payment|delete account)\b/.test(label)) return 'sensitive'; e.click(); return 'clicked'; })()""")
+        val documentExpr = documentExpression(frameSelector)
+        val query = if (selector.isNotBlank()) JSONObject.quote(selector) else "'[data-kino-action-id=\"$id\"]'"
+        val result = evaluate(tab.view, """(() => { const d=$documentExpr; if(!d)return 'frame';let e;try{e=d.querySelector($query)}catch(_){return 'invalid'}; if (!e || !e.isConnected) return 'stale'; const s=d.defaultView.getComputedStyle(e); if (s.display==='none'||s.visibility==='hidden'||e.disabled) return 'stale'; if(e.tagName==='A'&&e.protocol!=='https:') return 'blocked'; const label=(e.innerText||e.getAttribute('aria-label')||e.value||'').toLowerCase(); if(/\b(pay|purchase|buy now|place order|confirm order|submit payment|delete account)\b/.test(label)) return 'sensitive'; e.click(); return 'clicked'; })()""")
         tab.popupAllowedUntil = android.os.SystemClock.elapsedRealtime() + 500L
         try {
             require(result != "sensitive") { "This looks like a payment or irreversible action. Ask the user to take control and confirm it." }
@@ -413,12 +524,30 @@ class KinoBrowserSession {
         }
     }
 
-    private suspend fun typeInto(tab: Tab, id: String, text: String) {
+    private suspend fun typeInto(tab: Tab, id: String, text: String, selector: String = "", frameSelector: String = "") {
         val encoded = JSONObject.quote(text)
-        val result = evaluate(tab.view, """(() => { const e=document.querySelector('[data-kino-action-id="$id"]'); if(!e||!e.isConnected) return 'stale'; const t=(e.type||'').toLowerCase(); if(!['text','email','search','url','tel','number'].includes(t)||e.disabled||e.readOnly) return 'blocked'; e.focus(); e.value=$encoded; e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); return 'typed'; })()""")
+        val documentExpr = documentExpression(frameSelector)
+        val query = if (selector.isNotBlank()) JSONObject.quote(selector) else "'[data-kino-action-id=\"$id\"]'"
+        val result = evaluate(tab.view, """(() => { const d=$documentExpr;if(!d)return 'frame';let e;try{e=d.querySelector($query)}catch(_){return 'invalid'};if(!e||!e.isConnected) return 'stale'; const t=(e.type||'').toLowerCase(); if((!['text','email','search','url','tel','number'].includes(t)&&!e.isContentEditable)||e.disabled||e.readOnly) return 'blocked'; e.focus(); if(e.isContentEditable)e.textContent=$encoded;else e.value=$encoded; e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); return 'typed'; })()""")
         require(result == "typed") { "That field cannot be filled by Kino. Password fields must be entered by you in the browser." }
         delay(120)
     }
+
+    private fun documentExpression(frameSelector: String): String = if (frameSelector.isBlank()) "document" else
+        "(()=>{try{return document.querySelector(${JSONObject.quote(frameSelector)})?.contentDocument||null}catch(_){return null}})()"
+
+    private suspend fun queryElements(tab: Tab, selector: String, mode: String, frameSelector: String): String {
+        require(mode.lowercase(Locale.ROOT) in setOf("css", "xpath")) { "mode must be css or xpath." }
+        require(frameSelector.length <= 300) { "frame_selector is too long." }
+        val doc = documentExpression(frameSelector)
+        val encoded = JSONObject.quote(selector)
+        val xpath = mode.equals("xpath", true)
+        val queryCode = if (xpath) "(()=>{const r=d.evaluate(q,d,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null),a=[];for(let i=0;i<Math.min(15,r.snapshotLength);i++)a.push(r.snapshotItem(i));return a})()" else "Array.from(d.querySelectorAll(q)).slice(0,15)"
+        val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});const q=$encoded;let nodes;try{nodes=$queryCode}catch(e){return JSON.stringify({error:'invalid selector or XPath'})};return JSON.stringify(nodes.map((e,i)=>{const c=e.cloneNode(true);c.querySelectorAll('script,style,iframe,object,embed,form').forEach(n=>n.remove());[c,...c.querySelectorAll('*')].forEach(n=>Array.from(n.attributes).forEach(a=>{if(/^on/i.test(a.name)||a.name==='value'||a.name==='checked'||((a.name==='href'||a.name==='src')&&/^javascript:/i.test(a.value)))n.removeAttribute(a.name)}));return {index:i+1,tag:e.tagName.toLowerCase(),text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,400),html:c.outerHTML.slice(0,600),value:'value' in e&&!e.matches('input[type=password],input[type=hidden]')?String(e.value).slice(0,200):null,checked:'checked' in e?!!e.checked:null,disabled:'disabled' in e?!!e.disabled:null}}))})()"""
+        return "Query results (max 15 nodes): ${evaluate(tab.view, script)}"
+    }
+
+    private fun decodeJsString(value: String): String = JSONTokener(value).nextValue() as? String ?: error("Invalid quoted string.")
 
     private suspend fun awaitChangedNavigation(tab: Tab, previous: CompletableDeferred<Unit>?) {
         delay(250)

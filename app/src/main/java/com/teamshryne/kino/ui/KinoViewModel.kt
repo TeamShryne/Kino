@@ -406,6 +406,7 @@ class KinoViewModel(
                     1 -> ToolCallProtocol.browserUpgradePrompt(body)
                     2 -> ToolCallProtocol.unlimitedToolsUpgradePrompt(body)
                     3 -> ToolCallProtocol.unlimitedToolsUpgradePrompt(body)
+                    4 -> ToolCallProtocol.browserToolsUpgradePrompt(body)
                     else -> body
                 }
                 var toolCalls = 0
@@ -475,7 +476,7 @@ class KinoViewModel(
                     session = result.optString("session_id", session)
                     parent = maxOf(result.optLong("response_message_id", parent), responseMessageCheckpoint.get())
                     usage = result.optLong("accumulated_token_usage", usage)
-                    toolProtocolVersion = 4
+                    toolProtocolVersion = 5
                     conversations.saveProviderState(active.copy(sessionId = session, parentMessageId = parent, contextTokens = usage, toolProtocolVersion = toolProtocolVersion))
                     val streamedText = turnText.toString()
                     val rawTurn = responseFragmentText
