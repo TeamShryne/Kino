@@ -71,9 +71,16 @@ class KinoViewModel(
     val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
     private val _firstRunCorePrompt = MutableStateFlow(!preferences.getBoolean("core_prompt_seen", false))
     val firstRunCorePrompt: StateFlow<Boolean> = _firstRunCorePrompt.asStateFlow()
+    private fun currentPdfLimits() = com.teamshryne.kino.data.tools.PdfLimits(
+        maxPages = _pdfMaxPages.value,
+        maxHtmlChars = _pdfMaxHtmlKb.value * 1024,
+        maxPageChars = _pdfMaxPageKb.value * 1024,
+        maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
+    )
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
-        renderPdf = { title, pages, paged -> HtmlPdfRenderer(application).create(title, pages, paged) },
+        renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
+        pdfLimits = { currentPdfLimits() },
         browse = { arguments ->
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
@@ -92,6 +99,14 @@ class KinoViewModel(
     val showToolDetails: StateFlow<Boolean> = _showToolDetails.asStateFlow()
     private val _tableCellMinWidth = MutableStateFlow(preferences.getInt("table_cell_min_width", 112).coerceIn(64, 240))
     val tableCellMinWidth: StateFlow<Int> = _tableCellMinWidth.asStateFlow()
+    private val _pdfMaxPages = MutableStateFlow(preferences.getInt("pdf_max_pages", 20).coerceIn(1, 20))
+    val pdfMaxPages: StateFlow<Int> = _pdfMaxPages.asStateFlow()
+    private val _pdfMaxHtmlKb = MutableStateFlow(preferences.getInt("pdf_max_html_kb", 200).coerceIn(10, 200))
+    val pdfMaxHtmlKb: StateFlow<Int> = _pdfMaxHtmlKb.asStateFlow()
+    private val _pdfMaxPageKb = MutableStateFlow(preferences.getInt("pdf_max_page_kb", 100).coerceIn(5, 100))
+    val pdfMaxPageKb: StateFlow<Int> = _pdfMaxPageKb.asStateFlow()
+    private val _pdfMaxMb = MutableStateFlow(preferences.getInt("pdf_max_mb", 25).coerceIn(1, 25))
+    val pdfMaxMb: StateFlow<Int> = _pdfMaxMb.asStateFlow()
     private val _deepSeekConnected = MutableStateFlow(credentialStore.load() != null)
     val deepSeekConnected: StateFlow<Boolean> = _deepSeekConnected.asStateFlow()
     private val _capabilities = MutableStateFlow<ProviderCapabilities?>(null)
@@ -1130,6 +1145,30 @@ class KinoViewModel(
         val width = widthDp.coerceIn(64, 240)
         preferences.edit().putInt("table_cell_min_width", width).apply()
         _tableCellMinWidth.value = width
+    }
+
+    fun setPdfMaxPages(pages: Int) {
+        val value = pages.coerceIn(1, 20)
+        preferences.edit().putInt("pdf_max_pages", value).apply()
+        _pdfMaxPages.value = value
+    }
+
+    fun setPdfMaxHtmlKb(kb: Int) {
+        val value = kb.coerceIn(10, 200)
+        preferences.edit().putInt("pdf_max_html_kb", value).apply()
+        _pdfMaxHtmlKb.value = value
+    }
+
+    fun setPdfMaxPageKb(kb: Int) {
+        val value = kb.coerceIn(5, 100)
+        preferences.edit().putInt("pdf_max_page_kb", value).apply()
+        _pdfMaxPageKb.value = value
+    }
+
+    fun setPdfMaxMb(mb: Int) {
+        val value = mb.coerceIn(1, 25)
+        preferences.edit().putInt("pdf_max_mb", value).apply()
+        _pdfMaxMb.value = value
     }
 
     override fun onCleared() {

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Tune
@@ -62,6 +63,7 @@ private val settingEntries = listOf(
     SettingEntry("appearance", "Appearance", Icons.Rounded.Palette, "APP"),
     SettingEntry("chat", "Chat", Icons.Rounded.ChatBubbleOutline, "CHAT"),
     SettingEntry("provider", "Provider", Icons.Rounded.SmartToy, "CHAT"),
+    SettingEntry("pdf", "PDF", Icons.Rounded.PictureAsPdf, "CHAT"),
     SettingEntry("storage", "Data & storage", Icons.Rounded.Storage, "OTHER"),
     SettingEntry("libraries", "Libraries", Icons.Rounded.Storage, "OTHER"),
     SettingEntry("about", "About Kino", Icons.Rounded.Info, "OTHER"),
@@ -78,6 +80,14 @@ fun SettingsScreen(
     onThemeChange: (Boolean) -> Unit,
     onToolDetailChange: (Boolean) -> Unit,
     onTableCellMinWidthChange: (Int) -> Unit,
+    pdfMaxPages: Int,
+    pdfMaxHtmlKb: Int,
+    pdfMaxPageKb: Int,
+    pdfMaxMb: Int,
+    onPdfMaxPagesChange: (Int) -> Unit,
+    onPdfMaxHtmlKbChange: (Int) -> Unit,
+    onPdfMaxPageKbChange: (Int) -> Unit,
+    onPdfMaxMbChange: (Int) -> Unit,
     deepSeekConnected: Boolean,
     models: List<ProviderModel>,
     selectedModel: String,
@@ -167,6 +177,14 @@ fun SettingsScreen(
                 onThemeChange = onThemeChange,
                 onToolDetailChange = onToolDetailChange,
                 onTableCellMinWidthChange = onTableCellMinWidthChange,
+                pdfMaxPages = pdfMaxPages,
+                pdfMaxHtmlKb = pdfMaxHtmlKb,
+                pdfMaxPageKb = pdfMaxPageKb,
+                pdfMaxMb = pdfMaxMb,
+                onPdfMaxPagesChange = onPdfMaxPagesChange,
+                onPdfMaxHtmlKbChange = onPdfMaxHtmlKbChange,
+                onPdfMaxPageKbChange = onPdfMaxPageKbChange,
+                onPdfMaxMbChange = onPdfMaxMbChange,
                 deepSeekConnected = deepSeekConnected,
                 models = models,
                 selectedModel = selectedModel,
@@ -219,6 +237,14 @@ private fun SettingsDetail(
     onThemeChange: (Boolean) -> Unit,
     onToolDetailChange: (Boolean) -> Unit,
     onTableCellMinWidthChange: (Int) -> Unit,
+    pdfMaxPages: Int,
+    pdfMaxHtmlKb: Int,
+    pdfMaxPageKb: Int,
+    pdfMaxMb: Int,
+    onPdfMaxPagesChange: (Int) -> Unit,
+    onPdfMaxHtmlKbChange: (Int) -> Unit,
+    onPdfMaxPageKbChange: (Int) -> Unit,
+    onPdfMaxMbChange: (Int) -> Unit,
     deepSeekConnected: Boolean,
     models: List<ProviderModel>,
     selectedModel: String,
@@ -249,6 +275,24 @@ private fun SettingsDetail(
         when (page) {
             "appearance" -> SettingSurface {
                 SettingToggle("Dark theme", dark, onThemeChange)
+            }
+            "pdf" -> SettingSurface {
+                Column {
+                    Text(
+                        "Lower limits make PDF exports faster and smaller. Rendering draws one A4 page at a time and yields to the UI between pages, so the app never freezes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+                    )
+                    HorizontalDivider(Modifier.padding(horizontal = 15.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                    PdfLimitSlider("Maximum pages", "$pdfMaxPages", pdfMaxPages.toFloat(), 1f..20f, steps = 18) { onPdfMaxPagesChange(it.toInt()) }
+                    HorizontalDivider(Modifier.padding(horizontal = 15.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                    PdfLimitSlider("Maximum HTML size", "$pdfMaxHtmlKb KB", pdfMaxHtmlKb.toFloat(), 10f..200f, steps = 9) { onPdfMaxHtmlKbChange(it.toInt()) }
+                    HorizontalDivider(Modifier.padding(horizontal = 15.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                    PdfLimitSlider("Maximum size per page", "$pdfMaxPageKb KB", pdfMaxPageKb.toFloat(), 5f..100f, steps = 9) { onPdfMaxPageKbChange(it.toInt()) }
+                    HorizontalDivider(Modifier.padding(horizontal = 15.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                    PdfLimitSlider("Maximum PDF file size", "$pdfMaxMb MB", pdfMaxMb.toFloat(), 1f..25f, steps = 11) { onPdfMaxMbChange(it.toInt()) }
+                }
             }
             "chat" -> SettingSurface {
                 Column {
@@ -462,6 +506,17 @@ private fun SettingToggle(title: String, checked: Boolean, onChecked: (Boolean) 
     Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChecked)
+    }
+}
+
+@Composable
+private fun PdfLimitSlider(title: String, value: String, sliderValue: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onValue: (Float) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(value = sliderValue, onValueChange = onValue, valueRange = range, steps = steps)
     }
 }
 

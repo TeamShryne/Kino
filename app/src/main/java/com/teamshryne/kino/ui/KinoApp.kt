@@ -42,6 +42,10 @@ fun KinoApp(model: KinoViewModel) {
     val dark by model.darkTheme.collectAsState()
     val showToolDetails by model.showToolDetails.collectAsState()
     val tableCellMinWidth by model.tableCellMinWidth.collectAsState()
+    val pdfMaxPages by model.pdfMaxPages.collectAsState()
+    val pdfMaxHtmlKb by model.pdfMaxHtmlKb.collectAsState()
+    val pdfMaxPageKb by model.pdfMaxPageKb.collectAsState()
+    val pdfMaxMb by model.pdfMaxMb.collectAsState()
     val deepSeekConnected by model.deepSeekConnected.collectAsState()
     val capabilities by model.capabilities.collectAsState()
     val selectedModel by model.selectedModel.collectAsState()
@@ -194,6 +198,14 @@ fun KinoApp(model: KinoViewModel) {
                     onThemeChange = model::setDarkTheme,
                     onToolDetailChange = model::setShowToolDetails,
                     onTableCellMinWidthChange = model::setTableCellMinWidth,
+                    pdfMaxPages = pdfMaxPages,
+                    pdfMaxHtmlKb = pdfMaxHtmlKb,
+                    pdfMaxPageKb = pdfMaxPageKb,
+                    pdfMaxMb = pdfMaxMb,
+                    onPdfMaxPagesChange = model::setPdfMaxPages,
+                    onPdfMaxHtmlKbChange = model::setPdfMaxHtmlKb,
+                    onPdfMaxPageKbChange = model::setPdfMaxPageKb,
+                    onPdfMaxMbChange = model::setPdfMaxMb,
                     deepSeekConnected = deepSeekConnected,
                     models = capabilities?.models.orEmpty(),
                     selectedModel = selectedModel,
