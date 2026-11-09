@@ -1,11 +1,7 @@
 package com.teamshryne.kino.data.tools
 
 import android.content.Context
-import android.os.CancellationSignal
-import android.os.ParcelFileDescriptor
-import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
+import android.graphics.pdf.PdfDocument
 import android.view.View
 import android.webkit.SafeBrowsingResponse
 import android.webkit.WebResourceError
@@ -24,12 +20,11 @@ import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
- * Renders model HTML to PDF with an off-screen Android System WebView and
- * its print adapter. JavaScript is enabled so model scripts run and render
- * before printing; navigation, popups, downloads, and file access stay off.
+ * Renders model HTML to PDF by drawing an off-screen Android System WebView
+ * into a [PdfDocument]. JavaScript is enabled so model scripts run and render
+ * before drawing; navigation, popups, downloads, and file access stay off.
  *
  * Two modes:
  * - paged ([pages] has one HTML entry per A4 page): each entry is wrapped in
@@ -55,7 +50,7 @@ class HtmlPdfRenderer(private val context: Context) {
                 renderWithWebView(document, title, output)
             }
             checkPdf(output)
-            output.name
+            return output.name
         } catch (error: CancellationException) {
             output.delete()
             throw error
@@ -162,72 +157,53 @@ class HtmlPdfRenderer(private val context: Context) {
             continuation.invokeOnCancellation { /* WebView has no cancel; timed by caller */ }
         }
 
+    /**
+     * Renders the WebView into A4 PDF pages with the public [PdfDocument] API.
+     * WebView's print-adapter callbacks are package-private in the Android SDK
+     * (and its onLayout signature changed in API 35), so they cannot be used
+     * from app code. Drawing the WebView onto PdfDocument canvases is the
+     * supported headless path: the view is drawn in software so it renders.
+     */
     private suspend fun printToFile(webView: WebView, title: String, output: File) {
-        val attributes = PrintAttributes.Builder()
-            .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-            .setMinMargins(PrintAttributes.Margins(0, 0, 0, 0))
-            .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
-            .setResolution(PrintAttributes.Resolution("kino", "Kino", 300, 300))
-            .build()
-        val jobName = "Kino " + title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().take(48).ifBlank { "Document" }
-        val cancellationSignal = CancellationSignal()
-        val adapter = webView.createPrintDocumentAdapter(jobName)
-        ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_READ_WRITE).use { pfd ->
-            suspendCancellableCoroutine<Unit> { continuation ->
-                try {
-                    adapter.onStart()
-                    adapter.onLayout(
-                        null, attributes, cancellationSignal,
-                        object : PrintDocumentAdapter.LayoutResultCallback() {
-                            override fun onLayoutFinished(info: PrintDocumentInfo, newAttributes: PrintAttributes) {
-                                if (!continuation.isActive) return
-                                val pageCount = info.pageCount
-                                if (pageCount <= 0) {
-                                    continuation.resumeWithException(IllegalStateException("PDF renderer returned no pages."))
-                                    return
-                                }
-                                if (pageCount > MAX_PAGES) {
-                                    continuation.resumeWithException(IllegalStateException("PDF exceeds the $MAX_PAGES page limit."))
-                                    return
-                                }
-                                val range = PrintDocumentAdapter.PageRange(0, pageCount - 1)
-                                try {
-                                    adapter.onWrite(
-                                        arrayOf(range), pfd, cancellationSignal,
-                                        object : PrintDocumentAdapter.WriteResultCallback() {
-                                            override fun onWriteFinished(pages: Array<PrintDocumentAdapter.PageRange>) {
-                                                if (continuation.isActive) continuation.resume(Unit)
-                                            }
-                                            override fun onWriteFailed(error: CharSequence) {
-                                                if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error.toString()))
-                                            }
-                                            override fun onWriteCancelled() {
-                                                if (continuation.isActive) continuation.resumeWithException(IllegalStateException("PDF rendering was cancelled."))
-                                            }
-                                        },
-                                    )
-                                } catch (error: Throwable) {
-                                    if (continuation.isActive) continuation.resumeWithException(error)
-                                }
-                            }
-                            override fun onLayoutFailed(error: CharSequence) {
-                                if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error.toString()))
-                            }
-                            override fun onLayoutCancelled() {
-                                if (continuation.isActive) continuation.resumeWithException(IllegalStateException("PDF rendering was cancelled."))
-                            }
-                        },
-                        0,
-                    )
-                } catch (error: Throwable) {
-                    if (continuation.isActive) continuation.resumeWithException(error)
-                }
-                continuation.invokeOnCancellation {
-                    cancellationSignal.cancel()
-                    try { adapter.onFinish() } catch (_: Throwable) { }
-                }
+        // Measure full content height at A4 width (794px = 210mm).
+        val contentHeight = measureContentHeight(webView, PAGE_HEIGHT_PX)
+        val pageCount = (contentHeight + PAGE_HEIGHT_PX - 1) / PAGE_HEIGHT_PX
+        require(pageCount in 1..MAX_PAGES) { "PDF exceeds the $MAX_PAGES page limit." }
+        // Expand the view to the full content height so every page slice renders.
+        webView.measure(
+            View.MeasureSpec.makeMeasureSpec(PAGE_WIDTH_PX, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(contentHeight, View.MeasureSpec.EXACTLY),
+        )
+        webView.layout(0, 0, PAGE_WIDTH_PX, contentHeight)
+        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        // Let the resized view re-layout and paint the newly visible area.
+        delay(450)
+        val pdf = PdfDocument()
+        try {
+            val scale = PAGE_WIDTH_PT.toFloat() / PAGE_WIDTH_PX.toFloat()
+            for (pageIndex in 0 until pageCount) {
+                val info = PdfDocument.PageInfo.Builder(PAGE_WIDTH_PT, PAGE_HEIGHT_PT, pageIndex).create()
+                val page = pdf.startPage(info)
+                val canvas = page.canvas
+                canvas.save()
+                canvas.scale(scale, scale)
+                canvas.translate(0f, -pageIndex * PAGE_HEIGHT_PX.toFloat())
+                webView.draw(canvas)
+                canvas.restore()
+                pdf.finishPage(page)
             }
+            output.outputStream().use { pdf.writeTo(it) }
+        } finally {
+            pdf.close()
         }
+    }
+
+    private suspend fun measureContentHeight(webView: WebView, fallback: Int): Int {
+        val value = evaluate(
+            webView,
+            """(() => { const h = Math.max(document.body ? document.body.scrollHeight : 0, document.documentElement.scrollHeight, document.documentElement.offsetHeight); return String(h); })()""",
+        )
+        return (value.toIntOrNull() ?: fallback).coerceIn(PAGE_HEIGHT_PX, MAX_PAGES * PAGE_HEIGHT_PX)
     }
 
     private fun checkPdf(output: File) {
@@ -310,6 +286,9 @@ class HtmlPdfRenderer(private val context: Context) {
         const val MAX_PAGES = 20
         const val PAGE_WIDTH_PX = 794
         const val PAGE_HEIGHT_PX = 1123
+        // A4 in points (72pt/inch).
+        const val PAGE_WIDTH_PT = 595
+        const val PAGE_HEIGHT_PT = 842
         const val READY_SCRIPT = """(() => {
             try {
               if (window.__kinoPdfReady === false) return 'waiting';
