@@ -21,6 +21,7 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 /**
  * Renders model HTML to PDF by drawing an off-screen Android System WebView
@@ -182,7 +183,7 @@ class HtmlPdfRenderer(
      * Also fails fast if the page rendered no visible content at all.
      */
     private suspend fun fitToWidth(webView: WebView) {
-        var zoom = 1.0
+        var zoom = 1f
         val textLength = evaluate(webView, """(() => (document.body ? document.body.innerText : '').trim().length)()""").toIntOrNull() ?: 0
         val imageCount = evaluate(webView, """(() => document.images.length)()""").toIntOrNull() ?: 0
         require(textLength > 0 || imageCount > 0) { "HTML rendered an empty page." }
@@ -204,8 +205,6 @@ class HtmlPdfRenderer(
      * (and its onLayout signature changed in API 35), so they cannot be used
      * from app code. Drawing the WebView onto PdfDocument canvases is the
      * supported headless path: the view is drawn in software so it renders.
-     */
-    /**
      * Draws the WebView one A4 page at a time: the view stays a single page
      * tall and is scrolled per slice. (Resizing it to the full document
      * height would make a pages×1123dp bitmap — hundreds of MB at high
