@@ -60,7 +60,6 @@ fun KinoApp(model: KinoViewModel) {
     val libraryProgress by model.libraryProgress.collectAsState()
     val libraryError by model.libraryError.collectAsState()
     val firstRunCorePrompt by model.firstRunCorePrompt.collectAsState()
-    val pdfLibraryPrompt by model.pdfLibraryPrompt.collectAsState()
     val browserOpen by model.browserOpen.collectAsState()
     val browserState by model.browserState.collectAsState()
     val browserProgress = streamingTools.lastOrNull { it.tool?.name == "thinking" }?.tool?.detail.orEmpty()
@@ -111,14 +110,6 @@ fun KinoApp(model: KinoViewModel) {
         }) } },
         dismissButton = { TextButton(onClick = model::dismissCorePrompt) { Text("Later") } },
     )
-    if (pdfLibraryPrompt) AlertDialog(
-        onDismissRequest = model::dismissPdfPrompt,
-        title = { Text("Install PDF renderer") },
-        text = { Text("This agent needs the IronPress library to create PDFs. Download it now from the library catalog?") },
-        confirmButton = { TextButton(onClick = { model.installLibrary("ironpress-pdf") }) { Text(if (libraryBusy == "ironpress-pdf") "Installing…" else "Install") } },
-        dismissButton = { TextButton(onClick = { model.dismissPdfPrompt() }) { Text("Later") } },
-    )
-
     if (activeChat != null) {
         Box(Modifier.fillMaxSize()) {
             BrowserSessionPane(
