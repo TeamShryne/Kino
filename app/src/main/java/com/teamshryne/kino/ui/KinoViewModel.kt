@@ -676,9 +676,9 @@ class KinoViewModel(
                 }
                 val stopped = generation.cancelled.get()
                 parent = maxOf(parent, lastResponseMessageCheckpoint.get())
-                if (!stopped && error.hasUnexpectedEof() && session.isNotBlank()) {
+                if (!stopped && (error.hasUnexpectedEof() || error.hasMissingResponseId()) && session.isNotBlank()) {
                     runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
-                        parent = remoteHead
+                        if (remoteHead > 0) parent = maxOf(parent, remoteHead)
                         usage = maxOf(usage, remoteUsage)
                     }
                 }
@@ -733,7 +733,7 @@ class KinoViewModel(
         for (index in 0 until messages.length()) {
             val message = messages.optJSONObject(index) ?: continue
             val candidateId = message.optLong("message_id")
-            if (candidateId > 0) messageId = candidateId
+            if (candidateId > 0) messageId = maxOf(messageId, candidateId)
             usage = maxOf(usage, message.optLong("accumulated_token_usage"))
         }
         return messageId to usage
@@ -749,11 +749,21 @@ class KinoViewModel(
         return false
     }
 
+    private fun Throwable.hasMissingResponseId(): Boolean {
+        var cause: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (cause != null && seen.add(cause)) {
+            if (cause.message?.contains("without a response message id", ignoreCase = true) == true) return true
+            cause = cause.cause
+        }
+        return false
+    }
+
     private fun Throwable.isTransientCompletionError(): Boolean {
         var cause: Throwable? = this
         val seen = mutableSetOf<Throwable>()
         while (cause != null && seen.add(cause)) {
-            if (cause.hasUnexpectedEof()) return true
+            if (cause.hasUnexpectedEof() || cause.hasMissingResponseId()) return true
             val className = cause::class.java.name.lowercase()
             val message = cause.message?.lowercase().orEmpty()
             if (className.contains("socket") ||
