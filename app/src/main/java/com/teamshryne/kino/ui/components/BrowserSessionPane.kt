@@ -118,13 +118,18 @@ fun BrowserSessionPane(
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).alpha(if (visible) 1f else 0f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 Icon(Icons.Rounded.DesktopWindows, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Kino Browser", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(
+                        "Kino Browser",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
                     Text(
                         when {
                             state.userHasControl -> "You have control · Kino is waiting"
@@ -136,12 +141,12 @@ fun BrowserSessionPane(
                         maxLines = 1,
                     )
                     val progressLines = latestBrowserProgress(progressText)
-                    if (visible && progressLines.isNotBlank()) {
+                    Box(Modifier.fillMaxWidth().height(20.dp)) {
                         Text(
                             progressLines,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
-                            maxLines = 2,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -167,10 +172,12 @@ fun BrowserSessionPane(
             )
             LaunchedEffect(state.activeTabId) { host.value?.let(session::renderInto) }
 
-            if (state.loading) LinearProgressIndicator(
-                progress = { state.progress / 100f },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-            )
+            Box(Modifier.fillMaxWidth().height(2.dp)) {
+                if (state.loading) LinearProgressIndicator(
+                    progress = { state.progress / 100f },
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                )
+            }
             state.message?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
             }
@@ -311,5 +318,5 @@ private fun latestBrowserProgress(detail: String): String = detail.takeLast(1_20
     .map(String::trim)
     .filter(String::isNotBlank)
     .takeLast(2)
-    .joinToString("\n")
+    .joinToString(" ")
     .takeLast(360)

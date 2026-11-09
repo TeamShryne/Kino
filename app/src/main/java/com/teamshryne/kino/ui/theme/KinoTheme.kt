@@ -28,10 +28,10 @@ fun KinoTheme(dark: Boolean, content: @Composable () -> Unit) {
         }
     }
     val scheme = if (dark) darkColorScheme(
-        primary = Color(0xFF346BF1), onPrimary = Color.White,
+        primary = Color(0xFF7FA8FF), onPrimary = Color(0xFF07162E),
         background = Color(0xFF0A0A0A), surface = Color(0xFF111111),
-        surfaceVariant = Color(0xFF141414), onSurface = Color(0xFFF5F5F5),
-        onSurfaceVariant = Color(0xFF818181), outline = Color(0xFF191919),
+        surfaceVariant = Color(0xFF1F1F23), onSurface = Color(0xFFF5F5F5),
+        onSurfaceVariant = Color(0xFFC8C8C8), outline = Color(0xFF2A2A2E),
     ) else lightColorScheme(
         primary = Accent, onPrimary = Color.White,
         background = Canvas, surface = Color.White,
