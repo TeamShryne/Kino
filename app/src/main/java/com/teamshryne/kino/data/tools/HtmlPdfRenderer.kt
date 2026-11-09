@@ -218,7 +218,7 @@ class HtmlPdfRenderer(
     private suspend fun printToFile(webView: WebView, title: String, output: File) {
         // Heights are reported in CSS px (== dp); convert to view px.
         val density = context.resources.displayMetrics.density
-        val maxPages = limits.maxPages.coerceIn(1, MAX_PAGES)
+        val maxPages = limits.maxPages.coerceIn(1, HARD_MAX_PAGES)
         val sectionCount = evaluate(webView, "String(document.querySelectorAll('.kino-page').length)").toIntOrNull() ?: 1
         require(sectionCount in 1..maxPages) { "PDF exceeds the $maxPages page limit." }
         val widthPx = dpToPx(PAGE_WIDTH_PX, density)
@@ -274,7 +274,7 @@ class HtmlPdfRenderer(
               return String(Math.ceil(h));
             })()""",
         )
-        return (value.toIntOrNull() ?: PAGE_HEIGHT_PX).coerceIn(1, MAX_PAGES * PAGE_HEIGHT_PX)
+        return (value.toIntOrNull() ?: PAGE_HEIGHT_PX).coerceIn(1, HARD_MAX_PAGES * PAGE_HEIGHT_PX)
     }
 
     private fun dpToPx(cssPx: Int, density: Float): Int = (cssPx * density).roundToInt()
@@ -363,6 +363,7 @@ class HtmlPdfRenderer(
         const val MIN_PDF_BYTES = 500
         const val MAX_PDF_BYTES = 25 * 1024 * 1024
         const val MAX_PAGES = 20
+        const val HARD_MAX_PAGES = 100
         const val PAGE_RENDER_DELAY_MS = 160L
         const val PAGE_WIDTH_PX = 794
         const val PAGE_HEIGHT_PX = 1123

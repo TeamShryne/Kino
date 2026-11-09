@@ -99,13 +99,15 @@ class KinoViewModel(
     val showToolDetails: StateFlow<Boolean> = _showToolDetails.asStateFlow()
     private val _tableCellMinWidth = MutableStateFlow(preferences.getInt("table_cell_min_width", 112).coerceIn(64, 240))
     val tableCellMinWidth: StateFlow<Int> = _tableCellMinWidth.asStateFlow()
-    private val _pdfMaxPages = MutableStateFlow(preferences.getInt("pdf_max_pages", 20).coerceIn(1, 20))
+    // Defaults are 20 pages / 200 KB / 100 KB / 25 MB; the ranges below are
+    // only absolute safety ceilings, so users may customise above defaults.
+    private val _pdfMaxPages = MutableStateFlow(preferences.getInt("pdf_max_pages", 20).coerceIn(1, 100))
     val pdfMaxPages: StateFlow<Int> = _pdfMaxPages.asStateFlow()
-    private val _pdfMaxHtmlKb = MutableStateFlow(preferences.getInt("pdf_max_html_kb", 200).coerceIn(10, 200))
+    private val _pdfMaxHtmlKb = MutableStateFlow(preferences.getInt("pdf_max_html_kb", 200).coerceIn(1, 1024))
     val pdfMaxHtmlKb: StateFlow<Int> = _pdfMaxHtmlKb.asStateFlow()
-    private val _pdfMaxPageKb = MutableStateFlow(preferences.getInt("pdf_max_page_kb", 100).coerceIn(5, 100))
+    private val _pdfMaxPageKb = MutableStateFlow(preferences.getInt("pdf_max_page_kb", 100).coerceIn(1, 512))
     val pdfMaxPageKb: StateFlow<Int> = _pdfMaxPageKb.asStateFlow()
-    private val _pdfMaxMb = MutableStateFlow(preferences.getInt("pdf_max_mb", 25).coerceIn(1, 25))
+    private val _pdfMaxMb = MutableStateFlow(preferences.getInt("pdf_max_mb", 25).coerceIn(1, 100))
     val pdfMaxMb: StateFlow<Int> = _pdfMaxMb.asStateFlow()
     private val _deepSeekConnected = MutableStateFlow(credentialStore.load() != null)
     val deepSeekConnected: StateFlow<Boolean> = _deepSeekConnected.asStateFlow()
@@ -1148,25 +1150,25 @@ class KinoViewModel(
     }
 
     fun setPdfMaxPages(pages: Int) {
-        val value = pages.coerceIn(1, 20)
+        val value = pages.coerceIn(1, 100)
         preferences.edit().putInt("pdf_max_pages", value).apply()
         _pdfMaxPages.value = value
     }
 
     fun setPdfMaxHtmlKb(kb: Int) {
-        val value = kb.coerceIn(10, 200)
+        val value = kb.coerceIn(1, 1024)
         preferences.edit().putInt("pdf_max_html_kb", value).apply()
         _pdfMaxHtmlKb.value = value
     }
 
     fun setPdfMaxPageKb(kb: Int) {
-        val value = kb.coerceIn(5, 100)
+        val value = kb.coerceIn(1, 512)
         preferences.edit().putInt("pdf_max_page_kb", value).apply()
         _pdfMaxPageKb.value = value
     }
 
     fun setPdfMaxMb(mb: Int) {
-        val value = mb.coerceIn(1, 25)
+        val value = mb.coerceIn(1, 100)
         preferences.edit().putInt("pdf_max_mb", value).apply()
         _pdfMaxMb.value = value
     }
