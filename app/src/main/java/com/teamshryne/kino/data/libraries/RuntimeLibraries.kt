@@ -20,8 +20,6 @@ data class LibraryArtifact(val abi: String, val fileName: String, val url: Strin
 data class RuntimeLibrary(val id: String, val name: String, val version: String, val description: String, val format: String, val nativeLibrary: String, val classesFile: String?, val artifacts: List<LibraryArtifact>)
 data class LibraryState(val library: RuntimeLibrary, val installed: Boolean, val installedVersion: String?, val artifact: LibraryArtifact?) {
     val updateAvailable: Boolean get() = installedVersion != null && installedVersion != library.version && artifact != null
-} {
-    val updateAvailable: Boolean get() = installedVersion != null && installedVersion != library.version && artifact != null
 }
 
 class RuntimeLibraries(private val context: Context) {
