@@ -41,6 +41,8 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 private const val MAX_THINKING_TRACE_CHARS = 1_200
+private const val MAX_COMPLETION_ATTEMPTS = 3
+private const val COMPLETION_RETRY_DELAY_MS = 3_000L
 
 class KinoViewModel(
     application: Application,
@@ -538,47 +540,78 @@ class KinoViewModel(
                         if (remaining > 0) turnText.append(content.take(remaining))
                         updateTurnText()
                     }
-                    val result = provider.complete(
-                        sessionId = session,
-                        parentMessageId = parent,
-                        modelType = model.id,
-                        prompt = nextPrompt,
-                        thinking = active.thinkingEnabled,
-                        // Provider search is intentionally off. Kino's browser tool returns a bounded, reusable result within the same local-tool loop.
-                        search = false,
-                        fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
-                        cancelled = generation.cancelled,
-                        onEvent = { event ->
-                            event.optLong("response_message_id").takeIf { it > 0 }?.let { id ->
-                                responseMessageCheckpoint.updateAndGet { current -> maxOf(current, id) }
-                            }
-                            when (event.optString("kind")) {
-                                "text_delta" -> {
-                                    captureResponse(event.optString("content"))
-                                }
-                                "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") startThinkingTool(chatId)
-                                "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
-                                "fragment_delta" -> when (event.optString("fragment_type")) {
-                                    "RESPONSE" -> {
-                                        captureResponse(event.optString("content"))
+                    var completionResult: JSONObject? = null
+                    var completionError: Exception? = null
+                    for (attempt in 1..MAX_COMPLETION_ATTEMPTS) {
+                        try {
+                            completionResult = provider.complete(
+                                sessionId = session,
+                                parentMessageId = parent,
+                                modelType = model.id,
+                                prompt = nextPrompt,
+                                thinking = active.thinkingEnabled,
+                                // Provider search is intentionally off. Kino's browser tool returns a bounded, reusable result within the same local-tool loop.
+                                search = false,
+                                fileIds = if (toolCalls == 0) filesForMessage.map { it.first } else emptyList(),
+                                cancelled = generation.cancelled,
+                                onEvent = { event ->
+                                    event.optLong("response_message_id").takeIf { it > 0 }?.let { id ->
+                                        responseMessageCheckpoint.updateAndGet { current -> maxOf(current, id) }
                                     }
-                                    "THINK" -> appendThinkingTool(chatId, event.optString("content"))
-                                    "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
-                                }
-                                "fragment" -> {
-                                    val fragment = event.optJSONObject("fragment")
-                                    if (fragment?.optString("type")?.uppercase() == "RESPONSE") {
-                                        responseFragmentText = fragment.optString("content").take(ToolCallProtocol.MAX_RESPONSE_CHARS)
-                                    } else {
-                                        handleProviderFragment(chatId, fragment)
+                                    when (event.optString("kind")) {
+                                        "text_delta" -> {
+                                            captureResponse(event.optString("content"))
+                                        }
+                                        "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") startThinkingTool(chatId)
+                                        "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
+                                        "fragment_delta" -> when (event.optString("fragment_type")) {
+                                            "RESPONSE" -> {
+                                                captureResponse(event.optString("content"))
+                                            }
+                                            "THINK" -> appendThinkingTool(chatId, event.optString("content"))
+                                            "TOOL_OPEN" -> appendOpenedPageContent(chatId, event.optString("content"))
+                                        }
+                                        "fragment" -> {
+                                            val fragment = event.optJSONObject("fragment")
+                                            if (fragment?.optString("type")?.uppercase() == "RESPONSE") {
+                                                responseFragmentText = fragment.optString("content").take(ToolCallProtocol.MAX_RESPONSE_CHARS)
+                                            } else {
+                                                handleProviderFragment(chatId, fragment)
+                                            }
+                                        }
+                                        "usage" -> if (_activeChat.value == chatId) _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
+                                        "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
+                                        "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
                                     }
+                                },
+                            )
+                            completionError = null
+                            break
+                        } catch (error: Exception) {
+                            if (generation.cancelled.get()) throw error
+                            completionError = error
+                            if (!error.isTransientCompletionError() || attempt == MAX_COMPLETION_ATTEMPTS) throw error
+
+                            // A failed stream may have been committed as a partial
+                            // assistant turn. Resync the branch before repeating
+                            // the same prompt so the retry does not fork from a
+                            // stale parent message.
+                            if (session.isNotBlank()) {
+                                runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
+                                    if (remoteHead > 0) parent = maxOf(parent, remoteHead)
+                                    usage = maxOf(usage, remoteUsage)
                                 }
-                                "usage" -> if (_activeChat.value == chatId) _contextTokens.value = event.optLong("accumulated_token_usage", _contextTokens.value)
-                                "search_fragment" -> addSearchSources(chatId, SearchSourceCodec.fromFragment(event.optJSONObject("fragment") ?: JSONObject()))
-                                "search_update" -> addSearchSources(chatId, SearchSourceCodec.fromRaw(event.opt("raw")))
                             }
-                        },
-                    )
+                            // The provider may have streamed partial text that was
+                            // never committed. Clear the turn buffer so a retried
+                            // response is not glued to that partial text.
+                            turnText.setLength(0)
+                            responseFragmentText = null
+                            setLiveText(chatId, "")
+                            kotlinx.coroutines.delay(COMPLETION_RETRY_DELAY_MS)
+                        }
+                    }
+                    val result = completionResult ?: throw completionError ?: error("DeepSeek completion returned no result.")
                     if (generation.cancelled.get()) error("Generation stopped by user.")
                     session = result.optString("session_id", session)
                     parent = maxOf(result.optLong("response_message_id", parent), responseMessageCheckpoint.get())
@@ -711,6 +744,38 @@ class KinoViewModel(
         val seen = mutableSetOf<Throwable>()
         while (cause != null && seen.add(cause)) {
             if (cause.message?.contains("eof", ignoreCase = true) == true) return true
+            cause = cause.cause
+        }
+        return false
+    }
+
+    private fun Throwable.isTransientCompletionError(): Boolean {
+        var cause: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (cause != null && seen.add(cause)) {
+            if (cause.hasUnexpectedEof()) return true
+            val className = cause::class.java.name.lowercase()
+            val message = cause.message?.lowercase().orEmpty()
+            if (className.contains("socket") ||
+                className.contains("ssl") ||
+                className.contains("unknownhost") ||
+                className.contains("timeout")
+            ) return true
+            if (message.contains("http 401") || message.contains("http 403") || message.contains("biz_code") || message.contains("invalid json")) {
+                return false
+            }
+            if (listOf(
+                    "connection reset",
+                    "connection closed",
+                    "connection aborted",
+                    "broken pipe",
+                    "network is unreachable",
+                    "temporary failure",
+                    "socket closed",
+                    "tls handshake",
+                    "timed out"
+                ).any { it in message }
+            ) return true
             cause = cause.cause
         }
         return false
