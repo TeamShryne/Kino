@@ -43,15 +43,6 @@ import java.util.concurrent.atomic.AtomicLong
 private const val MAX_THINKING_TRACE_CHARS = 1_200
 private const val MAX_COMPLETION_ATTEMPTS = 3
 private const val COMPLETION_RETRY_DELAY_MS = 3_000L
-private val RECOVERY_POLL_DELAYS_MS = longArrayOf(1_500L, 2_000L, 3_000L, 4_500L, 6_000L, 8_000L, 10_000L)
-
-private data class RemoteAssistantTurn(
-    val messageId: Long,
-    val usage: Long,
-    val text: String,
-    val status: String,
-    val insertedAt: Double,
-)
 
 class KinoViewModel(
     application: Application,
@@ -468,11 +459,9 @@ class KinoViewModel(
         val interruptedCompletion = previousMessages.lastOrNull()?.tool?.name == "error"
         if (interruptedCompletion && previous.sessionId.isNotBlank()) {
             try {
-                val (remoteHead, remoteUsage) = latestRemoteHead(previous.sessionId, previous.parentMessageId)
-                if (remoteHead > previous.parentMessageId) {
-                    previous = previous.copy(parentMessageId = remoteHead, contextTokens = maxOf(previous.contextTokens, remoteUsage))
-                    conversations.saveProviderState(previous)
-                }
+                val (remoteHead, remoteUsage) = latestRemoteHead(previous.sessionId)
+                previous = previous.copy(parentMessageId = remoteHead, contextTokens = maxOf(previous.contextTokens, remoteUsage))
+                conversations.saveProviderState(previous)
             } catch (error: Exception) {
                 _providerError.value = "Kino couldn't resync this DeepSeek chat after the interrupted response. Check your connection and send again. ${error.message?.take(120).orEmpty()}"
                 return@launch
@@ -603,27 +592,16 @@ class KinoViewModel(
                             completionError = error
                             if (!error.isTransientCompletionError() || attempt == MAX_COMPLETION_ATTEMPTS) throw error
 
-                            // If the provider stream died after DeepSeek committed
-                            // the assistant turn, recover that turn from history
-                            // instead of immediately failing. The recovered
-                            // response/text is then parsed like a normal
-                            // completion, so a tool call can still execute and
-                            // the conversation keeps its correct parent id.
-                            val recoveredTurn = waitForRemoteAssistantTurn(sessionId = session, afterMessageId = parent, generation = generation)
-                            if (recoveredTurn != null) {
-                                parent = maxOf(parent, recoveredTurn.messageId)
-                                usage = maxOf(usage, recoveredTurn.usage)
-                                turnText.setLength(0)
-                                responseFragmentText = recoveredTurn.text.take(ToolCallProtocol.MAX_RESPONSE_CHARS)
-                                setLiveText(chatId, "")
-                                completionResult = JSONObject()
-                                    .put("session_id", session)
-                                    .put("response_message_id", parent)
-                                    .put("accumulated_token_usage", usage)
-                                completionError = null
-                                break
+                            // A failed stream may have been committed as a partial
+                            // assistant turn. Resync the branch before repeating
+                            // the same prompt so the retry does not fork from a
+                            // stale parent message.
+                            if (session.isNotBlank()) {
+                                runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
+                                    if (remoteHead > 0) parent = maxOf(parent, remoteHead)
+                                    usage = maxOf(usage, remoteUsage)
+                                }
                             }
-
                             // The provider may have streamed partial text that was
                             // never committed. Clear the turn buffer so a retried
                             // response is not glued to that partial text.
@@ -699,7 +677,7 @@ class KinoViewModel(
                 val stopped = generation.cancelled.get()
                 parent = maxOf(parent, lastResponseMessageCheckpoint.get())
                 if (!stopped && (error.hasUnexpectedEof() || error.hasMissingResponseId()) && session.isNotBlank()) {
-                    runCatching { latestRemoteHead(session, parent) }.onSuccess { (remoteHead, remoteUsage) ->
+                    runCatching { latestRemoteHead(session) }.onSuccess { (remoteHead, remoteUsage) ->
                         if (remoteHead > 0) parent = maxOf(parent, remoteHead)
                         usage = maxOf(usage, remoteUsage)
                     }
@@ -747,69 +725,18 @@ class KinoViewModel(
         generationChanged(chatId)
     }
 
-    private suspend fun latestRemoteHead(sessionId: String, afterMessageId: Long = 0L): Pair<Long, Long> {
-        val turn = latestRemoteAssistantTurn(sessionId, afterMessageId)
-        return if (turn == null) 0L to 0L else turn.messageId to turn.usage
-    }
-
-    private suspend fun latestRemoteAssistantTurn(sessionId: String, afterMessageId: Long = 0L): RemoteAssistantTurn? {
+    private suspend fun latestRemoteHead(sessionId: String): Pair<Long, Long> {
         val response = provider.history(sessionId)
         val messages = response.optJSONArray("messages") ?: error("DeepSeek did not return chat history.")
-        var best: RemoteAssistantTurn? = null
+        var messageId = 0L
+        var usage = 0L
         for (index in 0 until messages.length()) {
             val message = messages.optJSONObject(index) ?: continue
-            val role = message.optString("role").trim().uppercase()
-            if (role != "ASSISTANT") continue
             val candidateId = message.optLong("message_id")
-            if (candidateId <= afterMessageId) continue
-            val insertedAt = message.optDouble("inserted_at", 0.0)
-            val candidate = RemoteAssistantTurn(
-                messageId = candidateId,
-                usage = message.optLong("accumulated_token_usage"),
-                text = remoteResponseText(message),
-                status = message.optString("status"),
-                insertedAt = insertedAt,
-            )
-            val current = best
-            if (current == null || candidate.insertedAt > current.insertedAt ||
-                (candidate.insertedAt == current.insertedAt && candidate.messageId > current.messageId)
-            ) {
-                best = candidate
-            }
+            if (candidateId > 0) messageId = maxOf(messageId, candidateId)
+            usage = maxOf(usage, message.optLong("accumulated_token_usage"))
         }
-        return best
-    }
-
-    private fun remoteResponseText(message: JSONObject): String {
-        val fragments = message.optJSONArray("fragments") ?: return ""
-        val text = StringBuilder()
-        for (index in 0 until fragments.length()) {
-            val fragment = fragments.optJSONObject(index) ?: continue
-            if (fragment.optString("type").uppercase() != "RESPONSE") continue
-            val remaining = ToolCallProtocol.MAX_RESPONSE_CHARS - text.length
-            if (remaining <= 0) break
-            text.append(fragment.optString("content").take(remaining))
-        }
-        return text.toString()
-    }
-
-    private suspend fun waitForRemoteAssistantTurn(
-        sessionId: String,
-        afterMessageId: Long,
-        generation: ChatGeneration,
-    ): RemoteAssistantTurn? {
-        if (sessionId.isBlank()) return null
-        for ((index, delayMs) in RECOVERY_POLL_DELAYS_MS.withIndex()) {
-            if (generation.cancelled.get()) return null
-            val turn = runCatching { latestRemoteAssistantTurn(sessionId, afterMessageId) }.getOrNull()
-            if (turn != null && turn.text.isNotBlank() && !turn.status.equals("WIP", ignoreCase = true)) {
-                return turn
-            }
-            if (index < RECOVERY_POLL_DELAYS_MS.lastIndex) {
-                kotlinx.coroutines.delay(delayMs)
-            }
-        }
-        return null
+        return messageId to usage
     }
 
     private fun Throwable.hasUnexpectedEof(): Boolean {
