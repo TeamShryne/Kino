@@ -87,12 +87,12 @@ class KinoBrowserSession {
           const start=Math.floor(fraction*maxStart);
           let n=window.__kinoActionIdCounter||0;
           const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'&&parseFloat(s.opacity)>0};
-          const selector='a[href],button,[role=button],summary,input:not([type=hidden]):not([type=password]),textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox]';
+          const selector='a[href],button,[role=button],[role=combobox],[role=option],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],option,summary,input:not([type=hidden]):not([type=password]),textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox]';
           const elements=Array.from(document.querySelectorAll(selector)).filter(visible);
           const field=e=>{const tag=e.tagName.toLowerCase(),type=(e.type||'').toLowerCase();return (tag==='input'&&!['button','submit','reset','image','checkbox','radio','file','hidden','password'].includes(type))||tag==='textarea'||tag==='select'||e.isContentEditable||e.getAttribute('role')==='textbox'};
           const label=e=>{const ids=(e.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean);const labelled=ids.map(id=>document.getElementById(id)?.innerText||document.getElementById(id)?.textContent||'').join(' ');const labels=e.labels?Array.from(e.labels).map(x=>x.innerText).join(' '):'';const child=e.querySelector('[aria-label],title');return clean(e.getAttribute('aria-label'))||clean(labelled)||clean(labels)||clean(e.getAttribute('placeholder'))||clean(e.getAttribute('data-placeholder'))||clean(e.getAttribute('aria-placeholder'))||clean(e.innerText)||clean(e.getAttribute('title'))||clean(child?.getAttribute('aria-label'))||clean(child?.textContent)||clean(e.value)||clean(e.name)||clean(e.id)};
           const fields=elements.filter(field);
-          const controls=elements.map((e,index)=>{let id=e.getAttribute('data-kino-action-id');if(!id){id='a'+(++n);e.setAttribute('data-kino-action-id',id)};const tag=e.tagName.toLowerCase(),isField=field(e),isButton=tag==='button'||['button','submit','reset','image'].includes((e.type||'').toLowerCase()),role=isField?'input':(tag==='a'?'link':(isButton?'button':(e.getAttribute('role')||tag))),name=label(e),hint=clean(e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder'));const r=e.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let distance=Infinity,sameForm=false;for(const f of fields){if(f===e)continue;const q=f.getBoundingClientRect(),d=Math.abs(cx-(q.left+q.width/2))+Math.abs(cy-(q.top+q.height/2));if(d<distance)distance=d;if(e.form&&f.form===e.form)sameForm=true};const actionName=(name+' '+hint).toLowerCase();const actionIntent=/\b(send|submit|search|continue|next|go|done)\b/.test(actionName)?150:0;const proximity=(sameForm?260:0)+(distance<260?Math.max(0,220-distance):0);const score=isField?1000:(role==='button'?proximity+actionIntent:(role==='link'?-100:0));return {id,role,tag,type:clean(e.type||''),label:name.slice(0,100),hint:hint.slice(0,100),disabled:!!e.disabled,url:tag==='a'&&/^https?:/i.test(e.href)?e.href:'',score,index}}).sort((a,b)=>b.score-a.score||a.index-b.index).slice(0,40);
+          const controls=elements.map((e,index)=>{let id=e.getAttribute('data-kino-action-id');if(!id){id='a'+(++n);e.setAttribute('data-kino-action-id',id)};const tag=e.tagName.toLowerCase(),isField=field(e),isButton=tag==='button'||['button','submit','reset','image'].includes((e.type||'').toLowerCase()),role=isField?'input':(tag==='a'?'link':(isButton?'button':(e.getAttribute('role')||tag))),name=label(e),hint=clean(e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder'));const r=e.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let distance=Infinity,sameForm=false;for(const f of fields){if(f===e)continue;const q=f.getBoundingClientRect(),d=Math.abs(cx-(q.left+q.width/2))+Math.abs(cy-(q.top+q.height/2));if(d<distance)distance=d;if(e.form&&f.form===e.form)sameForm=true};const actionName=(name+' '+hint).toLowerCase();const actionIntent=/\b(send|submit|search|continue|next|go|done)\b/.test(actionName)?150:0;const proximity=(sameForm?260:0)+(distance<260?Math.max(0,220-distance):0);const score=isField?1000:(role==='button'?proximity+actionIntent:(role==='link'?-100:0));return {id,role,tag,type:clean(e.type||''),label:name.slice(0,100),hint:hint.slice(0,100),disabled:!!e.disabled,expanded:e.getAttribute('aria-expanded'),selected:e.getAttribute('aria-selected')||(e.selectedOptions&&e.selectedOptions[0]&&clean(e.selectedOptions[0].text)||null),url:tag==='a'&&/^https?:/i.test(e.href)?e.href:'',score,index}}).sort((a,b)=>b.score-a.score||a.index-b.index).slice(0,40);
           const actions=controls.map(({score,index,...action})=>action);
           window.__kinoActionIdCounter=n;
           const images=Array.from(document.images).filter(visible).map((e,i)=>({id:'i'+(i+1),alt:clean(e.alt).slice(0,100),url:e.currentSrc||e.src})).filter(e=>/^https:\/\//i.test(e.url)).slice(0,16);
@@ -132,6 +132,8 @@ class KinoBrowserSession {
         val type: String = "",
         val hint: String = "",
         val disabled: Boolean = false,
+        val expanded: String? = null,
+        val selected: String? = null,
     )
     private data class PageImage(val id: String, val alt: String, val url: String)
 
@@ -320,12 +322,13 @@ class KinoBrowserSession {
             }
             "select_option" -> {
                 val selector = arguments.optString("selector").take(300)
+                val elementId = arguments.optString("element_id").take(100)
                 val value = arguments.optString("value").take(300)
-                require(selector.isNotBlank() && value.isNotBlank()) { "select_option needs selector and value." }
+                val frameSelector = arguments.optString("frame_selector").take(300)
+                require(selector.isNotBlank() || elementId.isNotBlank()) { "select_option needs selector or element_id." }
+                require(value.isNotBlank()) { "select_option needs value." }
                 val tab = activeTab() ?: error("There is no active browser tab.")
-                val result = evaluate(tab.view, """(() => {let e;try{e=document.querySelector(${JSONObject.quote(selector)})}catch(_){return 'invalid'};if(!e||e.tagName!=='SELECT'||e.disabled)return 'unavailable';const v=${JSONObject.quote(value)};if(!Array.from(e.options).some(o=>o.value===v&&!o.disabled))return 'option';e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'selected'})()""")
-                require(result == "selected") { "Could not select that option; verify the selector and option value." }
-                pageResult(tab)
+                selectOption(tab, elementId, selector, value, frameSelector)
             }
             "query" -> {
                 val selector = arguments.optString("selector").take(500)
@@ -338,7 +341,7 @@ class KinoBrowserSession {
                 require(selector.isNotBlank()) { "element_state needs a CSS selector." }
                 val tab = activeTab() ?: error("There is no active browser tab.")
                 val doc = documentExpression(arguments.optString("frame_selector"))
-                val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});let e;try{e=d.querySelector(${JSONObject.quote(selector)})}catch(_){return JSON.stringify({error:'invalid selector'})};if(!e)return JSON.stringify({found:false});const sensitive=e.matches('input[type=password],input[type=hidden]'),ids=(e.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),labelled=ids.map(id=>d.getElementById(id)?.innerText||'').join(' '),labels=e.labels?Array.from(e.labels).map(x=>x.innerText).join(' '):'',name=e.getAttribute('aria-label')||labelled||labels||e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.innerText||e.getAttribute('title')||e.id;return JSON.stringify({found:true,name:(name||'').trim().replace(/\s+/g,' ').slice(0,100),placeholder:e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||null,value:'value' in e&&!sensitive?String(e.value).slice(0,120):null,checked:'checked' in e?!!e.checked:null,disabled:'disabled' in e?!!e.disabled:null,tag:e.tagName.toLowerCase()})})()"""
+                val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});let e;try{e=d.querySelector(${JSONObject.quote(selector)})}catch(_){return JSON.stringify({error:'invalid selector'})};if(!e)return JSON.stringify({found:false});const sensitive=e.matches('input[type=password],input[type=hidden]'),ids=(e.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),labelled=ids.map(id=>d.getElementById(id)?.innerText||'').join(' '),labels=e.labels?Array.from(e.labels).map(x=>x.innerText).join(' '):'',name=e.getAttribute('aria-label')||labelled||labels||e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.innerText||e.getAttribute('title')||e.id;return JSON.stringify({found:true,name:(name||'').trim().replace(/\s+/g,' ').slice(0,100),placeholder:e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||null,value:'value' in e&&!sensitive?String(e.value).slice(0,120):null,checked:'checked' in e?!!e.checked:null,expanded:e.getAttribute('aria-expanded'),selected:e.getAttribute('aria-selected')||(e.selectedOptions&&e.selectedOptions[0]&&(e.selectedOptions[0].text||'').trim().replace(/\s+/g,' ')||null),options:(e.tagName==='SELECT'?Array.from(e.options).map(o=>({value:o.value,label:(o.text||'').trim().replace(/\s+/g,' '),selected:!!o.selected,disabled:!!o.disabled})):[]),disabled:'disabled' in e?!!e.disabled:null,tag:e.tagName.toLowerCase()})})()"""
                 "Element state: ${evaluate(tab.view, script)}"
             }
             "links", "tables" -> {
@@ -544,6 +547,96 @@ class KinoBrowserSession {
         }
     }
 
+    private suspend fun selectOption(
+        tab: Tab,
+        elementId: String,
+        selector: String,
+        valueText: String,
+        frameSelector: String,
+    ): String {
+        require(_state.value.activeTabId == tab.id) { "This tab is inactive; call browser(action=\"tabs\", tab_id=\"${tab.id}\") first." }
+        val doc = documentExpression(frameSelector)
+        val query = when {
+            elementId.isNotBlank() -> "'[data-kino-action-id=\"" + elementId + "\"]'"
+            selector.isNotBlank() -> JSONObject.quote(selector)
+            else -> error("select_option needs selector or element_id.")
+        }
+        if (elementId.isNotBlank()) require(elementId.matches(Regex("[a-zA-Z0-9_-]{1,100}"))) { "element_id is invalid." }
+
+        val target = JSONObject.quote(valueText)
+        val openScript = """(() => {
+            const d=$doc;
+            if(!d) return JSON.stringify({status:'frame'});
+            let e;
+            try { e=d.querySelector($query); } catch(_) { return JSON.stringify({status:'invalid'}); }
+            if(!e || !e.isConnected) return JSON.stringify({status:'missing'});
+            const clean = s => (s||'').replace(/\s+/g,' ').trim();
+            const wanted = clean($target).toLowerCase();
+            if(e.tagName==='SELECT') {
+                const options = Array.from(e.options);
+                const match = options.find(o => !o.disabled && clean(o.value).toLowerCase() === wanted)
+                    || options.find(o => !o.disabled && clean(o.text).toLowerCase() === wanted);
+                if(!match) return JSON.stringify({status:'no_option', available: options.map(o => ({value:o.value,label:clean(o.text),selected:!!o.selected,disabled:!!o.disabled})).slice(0,15)});
+                if(match.selected) return JSON.stringify({status:'already_selected', value:match.value, label:clean(match.text), selected:true});
+                e.value = match.value;
+                e.dispatchEvent(new Event('input',{bubbles:true}));
+                e.dispatchEvent(new Event('change',{bubbles:true}));
+                return JSON.stringify({status:'selected', value:match.value, label:clean(match.text), selected:true});
+            }
+            const role = (e.getAttribute('role')||'').toLowerCase();
+            const hasPopup = e.getAttribute('aria-haspopup') || role === 'combobox' || role === 'button';
+            if(!hasPopup) return JSON.stringify({status:'unsupported', tag:e.tagName.toLowerCase(), role});
+            const before = clean(e.textContent || e.innerText || '');
+            e.focus();
+            e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+            e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+            e.click();
+            e.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+            e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
+            return JSON.stringify({status:'opened', before, expanded:e.getAttribute('aria-expanded')});
+        })()"""
+        val opened = runCatching { JSONObject(evaluate(tab.view, openScript)) }.getOrNull()
+            ?: error("select_option could not inspect the control.")
+        when (opened.optString("status")) {
+            "selected", "already_selected" -> {
+                delay(120)
+                return "Selected option '${opened.optString("label")}'.\n" + pageResult(tab)
+            }
+            "missing" -> error("No element matched that selector or element_id. Use browser(action=\"query\", selector=\"button, [role=combobox], select\") to inspect the menu control.")
+            "invalid" -> error("The selector is invalid. Use browser(action=\"query\", selector=\"button, [role=combobox], select\") to verify it.")
+            "frame" -> error("That iframe is unavailable or cross-origin; Kino can only inspect same-origin iframe content.")
+            "unsupported" -> error("This control is not a native select or a custom dropdown menu. Open it with browser(action=\"click\") and then use query/read to inspect its options.")
+            "no_option" -> error("The native select does not contain option '${valueText}'. Available options: ${opened.optJSONArray("available")}")
+        }
+
+        delay(150)
+        val clickScript = """(() => {
+            const d=$doc;
+            if(!d) return JSON.stringify({status:'frame'});
+            const clean = s => (s||'').replace(/\s+/g,' ').trim();
+            const wanted = clean($target).toLowerCase();
+            const visible = el => { const r=el.getBoundingClientRect(), s=d.defaultView.getComputedStyle(el); return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden' && parseFloat(s.opacity)>0; };
+            const candidates = Array.from(d.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="listbox"] *')).filter(visible);
+            const info = el => clean(el.getAttribute('aria-label') || el.innerText || el.textContent || el.getAttribute('data-value') || el.getAttribute('value') || '');
+            const exact = candidates.find(el => clean(el.value ?? el.dataset?.value ?? el.textContent ?? el.innerText).toLowerCase() === wanted);
+            const option = exact || candidates.find(el => info(el).toLowerCase() === wanted);
+            if(!option) return JSON.stringify({status:'no_option', available:candidates.map(el => ({value:clean(el.value ?? el.dataset?.value ?? ''),label:info(el),selected:el.getAttribute('aria-selected')==='true'||el.getAttribute('aria-checked')==='true'})).slice(0,15)});
+            if(option.getAttribute('aria-selected')==='true' || option.getAttribute('aria-checked')==='true') return JSON.stringify({status:'already_selected', label:info(option), selected:true});
+            option.click();
+            return JSON.stringify({status:'selected', label:info(option), selected:true});
+        })()"""
+        val result = runCatching { JSONObject(evaluate(tab.view, clickScript)) }.getOrNull()
+            ?: error("select_option could not inspect the opened menu.")
+        when (result.optString("status")) {
+            "selected", "already_selected" -> {
+                delay(120)
+                return "Selected menu option '${result.optString("label")}'.\n" + pageResult(tab)
+            }
+            "frame" -> error("That iframe is unavailable or cross-origin; Kino can only inspect same-origin iframe content.")
+            else -> error("The opened menu no longer contains option '${valueText}'. Available options: ${result.optJSONArray("available")}")
+        }
+    }
+
     private suspend fun clickElement(tab: Tab, id: String, selector: String = "", frameSelector: String = ""): String {
         require(_state.value.activeTabId == tab.id) { "This tab is inactive; call browser(action=\"tabs\", tab_id=\"${tab.id}\") first." }
         val old = tab.navigation
@@ -599,7 +692,7 @@ class KinoBrowserSession {
         val encoded = JSONObject.quote(selector)
         val xpath = mode.equals("xpath", true)
         val queryCode = if (xpath) "(()=>{const r=d.evaluate(q,d,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null),a=[];for(let i=0;i<Math.min(15,r.snapshotLength);i++)a.push(r.snapshotItem(i));return a})()" else "Array.from(d.querySelectorAll(q)).slice(0,15)"
-        val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});const q=$encoded;let nodes;try{nodes=$queryCode}catch(e){return JSON.stringify({error:'invalid selector or XPath'})};let n=window.__kinoActionIdCounter||0;return JSON.stringify(nodes.map((e,i)=>{let elementId=e.getAttribute('data-kino-action-id');if(!elementId){elementId='a'+(++n);e.setAttribute('data-kino-action-id',elementId)};const ids=(e.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),labelled=ids.map(id=>d.getElementById(id)?.innerText||'').join(' '),labels=e.labels?Array.from(e.labels).map(x=>x.innerText).join(' '):'',name=e.getAttribute('aria-label')||labelled||labels||e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||e.innerText||e.getAttribute('title')||e.id||e.tagName.toLowerCase(),placeholder=e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||null,c=e.cloneNode(true);c.querySelectorAll('script,style,iframe,object,embed,form').forEach(x=>x.remove());[c,...c.querySelectorAll('*')].forEach(x=>Array.from(x.attributes).forEach(a=>{if(/^on/i.test(a.name)||a.name==='value'||a.name==='checked'||((a.name==='href'||a.name==='src')&&/^javascript:/i.test(a.value)))x.removeAttribute(a.name)}));return {index:i+1,element_id:elementId,role:e.getAttribute('role')||e.tagName.toLowerCase(),name:(name||'').trim().replace(/\s+/g,' ').slice(0,90),placeholder,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180),html:c.outerHTML.slice(0,300),value:'value' in e&&!e.matches('input[type=password],input[type=hidden]')?String(e.value).slice(0,100):null,checked:'checked' in e?!!e.checked:null,disabled:!!e.disabled}}))})()"""
+        val script = """(() => {const d=$doc;if(!d)return JSON.stringify({error:'iframe unavailable or cross-origin'});const q=$encoded;let nodes;try{nodes=$queryCode}catch(e){return JSON.stringify({error:'invalid selector or XPath'})};let n=window.__kinoActionIdCounter||0;return JSON.stringify(nodes.map((e,i)=>{let elementId=e.getAttribute('data-kino-action-id');if(!elementId){elementId='a'+(++n);e.setAttribute('data-kino-action-id',elementId)};const ids=(e.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),labelled=ids.map(id=>d.getElementById(id)?.innerText||'').join(' '),labels=e.labels?Array.from(e.labels).map(x=>x.innerText).join(' '):'',name=e.getAttribute('aria-label')||labelled||labels||e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||e.innerText||e.getAttribute('title')||e.id||e.tagName.toLowerCase(),placeholder=e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||e.getAttribute('aria-placeholder')||null,c=e.cloneNode(true);c.querySelectorAll('script,style,iframe,object,embed,form').forEach(x=>x.remove());[c,...c.querySelectorAll('*')].forEach(x=>Array.from(x.attributes).forEach(a=>{if(/^on/i.test(a.name)||a.name==='value'||a.name==='checked'||((a.name==='href'||a.name==='src')&&/^javascript:/i.test(a.value)))x.removeAttribute(a.name)}));return {index:i+1,element_id:elementId,role:e.getAttribute('role')||e.tagName.toLowerCase(),name:(name||'').trim().replace(/\s+/g,' ').slice(0,90),placeholder,text:(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ').slice(0,180),html:c.outerHTML.slice(0,300),expanded:e.getAttribute('aria-expanded'),selected:e.getAttribute('aria-selected')||(e.selectedOptions&&e.selectedOptions[0]&&(e.selectedOptions[0].text||'').trim().replace(/\s+/g,' ')||null),value:'value' in e&&!e.matches('input[type=password],input[type=hidden]')?String(e.value).slice(0,100):null,checked:'checked' in e?!!e.checked:null,disabled:!!e.disabled}}))})()"""
         return "Query results (max 15 nodes; use element_id for click/type): ${evaluate(tab.view, script)}"
     }
 
@@ -671,6 +764,8 @@ class KinoBrowserSession {
                     type = item.optString("type"),
                     hint = item.optString("hint"),
                     disabled = item.optBoolean("disabled"),
+                    expanded = item.optString("expanded").takeIf { it.isNotBlank() },
+                    selected = item.optString("selected").takeIf { it.isNotBlank() },
                 ))
             }
         }
@@ -720,6 +815,8 @@ class KinoBrowserSession {
         if (kind.isNotBlank() && kind != action.role) append(" (").append(kind).append(")")
         append(": ").append(action.label.ifBlank { "Unnamed ${action.role}" })
         if (action.hint.isNotBlank() && !action.hint.equals(action.label, true)) append(" — placeholder: ").append(action.hint)
+        if (action.expanded == "true") append(" (menu open)")
+        if (!action.selected.isNullOrBlank() && action.selected != "false") append(" (selected: ").append(action.selected).append(")")
         if (action.disabled) append(" (disabled)")
         if (action.url.isNotBlank()) append(" → ").append(redactUrl(action.url))
     }

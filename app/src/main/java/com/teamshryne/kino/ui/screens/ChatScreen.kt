@@ -253,7 +253,7 @@ fun ChatScreen(
                             MessageRole.ASSISTANT -> AssistantMessage(row.message.text, tableCellMinWidth = tableCellMinWidth)
                             MessageRole.TOOL -> Unit
                         }
-                        is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth) { selectedSource = it }
+                        is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = false) { selectedSource = it }
                     }
                 }
                 liveRows.forEach { row ->
@@ -262,7 +262,7 @@ fun ChatScreen(
                             AssistantMessage(row.message.text, tableCellMinWidth = tableCellMinWidth)
                         }
                         is TimelineRow.WorkGroup -> item(key = "live-" + row.key) {
-                            ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth) { selectedSource = it }
+                            ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = isBusy) { selectedSource = it }
                         }
                     }
                 }
@@ -370,12 +370,12 @@ private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, tableCellMinWidth: Int, onSourceClick: (SearchSource) -> Unit) {
+private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, tableCellMinWidth: Int, live: Boolean, onSourceClick: (SearchSource) -> Unit) {
     val context = LocalContext.current
     var expanded by rememberSaveable(items.first().id) { mutableStateOf(showDetails) }
     LaunchedEffect(showDetails) { expanded = showDetails }
     val heading = toolGroupSummary(items)
-    val working = items.any { it.tool?.status == "Preparing" || it.tool?.status == "Working" }
+    val working = live && items.any { it.tool?.status == "Preparing" || it.tool?.status == "Working" }
     val failed = items.any { it.tool?.status == "Failed" || it.tool?.status == "Error" }
     Surface(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
@@ -410,81 +410,132 @@ private fun ToolActivityBlock(items: List<KinoMessage>, showDetails: Boolean, ta
                     Spacer(Modifier.height(7.dp))
                     items.forEachIndexed { index, message ->
                         if (index > 0) Spacer(Modifier.height(10.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(message.text, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                            Text(message.tool?.status.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (message.tool?.name == "search") {
-                            val sources = remember(message.tool.detail) { SearchSourceCodec.decode(message.tool.detail) }
-                            if (sources.isNotEmpty()) {
-                                Spacer(Modifier.height(6.dp))
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    sources.forEach { source -> SearchSourceChip(source) { onSourceClick(source) } }
-                                }
-                            } else {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    if (message.tool.status == "Working") "Searching the web…" else "No links were returned",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        } else if (message.tool?.name == "html_to_pdf") {
-                            val pdf = remember(message.tool.detail) { runCatching { JSONObject(message.tool.detail) }.getOrNull() }
-                            val filename = pdf?.optString("filename").orEmpty()
-                            val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
-                            Spacer(Modifier.height(3.dp))
-                            if (safeFilename != null) {
-                                Text(pdf?.optString("title").orEmpty().ifBlank { "PDF ready" }, style = MaterialTheme.typography.bodySmall)
-                                val pdfUri = remember(safeFilename) {
-                                    val file = File(context.filesDir, "pdf-exports/$safeFilename")
-                                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    androidx.compose.material3.TextButton(
-                                        onClick = {
-                                            pdfUri?.let { uri ->
-                                                val open = Intent(Intent.ACTION_VIEW).apply {
-                                                    setDataAndType(uri, "application/pdf")
-                                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                }
-                                                runCatching { context.startActivity(Intent.createChooser(open, "Open PDF")) }
-                                                    .onFailure { Toast.makeText(context, "No PDF viewer is available.", Toast.LENGTH_SHORT).show() }
-                                            }
-                                        }, enabled = pdfUri != null,
-                                    ) { Text("Open PDF") }
-                                    androidx.compose.material3.TextButton(
-                                        onClick = {
-                                            pdfUri?.let { uri ->
-                                                val share = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "application/pdf"
-                                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                }
-                                                runCatching { context.startActivity(Intent.createChooser(share, "Share PDF")) }
-                                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
-                                            }
-                                        }, enabled = pdfUri != null,
-                                    ) { Text("Share") }
-                                }
-                            } else {
-                                Text(message.tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall)
-                            }
-                        } else if (message.tool?.name == "thinking") {
-                            if (message.tool.detail.isNotBlank()) {
-                                Spacer(Modifier.height(3.dp))
-                                MarkdownText(message.tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
-                            }
-                        } else if (!message.tool?.detail.isNullOrBlank()) {
-                            Spacer(Modifier.height(3.dp))
-                            MarkdownText(message.tool?.detail.orEmpty(), tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
-                        }
+                        ToolActivityItem(
+                            message = message,
+                            live = live,
+                            tableCellMinWidth = tableCellMinWidth,
+                            onSourceClick = onSourceClick,
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ToolActivityItem(message: KinoMessage, live: Boolean, tableCellMinWidth: Int, onSourceClick: (SearchSource) -> Unit) {
+    var expanded by rememberSaveable(message.id) { mutableStateOf(false) }
+    val tool = message.tool
+    val itemWorking = live && (tool?.status == "Preparing" || tool?.status == "Working")
+    val itemFailed = tool?.status == "Failed" || tool?.status == "Error"
+    val icon = when (tool?.name) {
+        "browser" -> Icons.Rounded.DesktopWindows
+        "thinking" -> Icons.Rounded.Psychology
+        "search" -> Icons.Rounded.TravelExplore
+        else -> Icons.Rounded.Terminal
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { expanded = !expanded }.padding(horizontal = 3.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(message.text, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                Text(tool?.status.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (itemWorking) {
+                    Spacer(Modifier.width(6.dp))
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(11.dp), strokeWidth = 1.6.dp)
+                } else if (itemFailed) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("Failed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+                Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AnimatedVisibility(expanded) {
+                Column(Modifier.padding(start = 23.dp, end = 3.dp, top = 7.dp, bottom = 3.dp)) {
+                    if (tool == null) {
+                        Text(message.text, style = MaterialTheme.typography.bodySmall)
+                    } else if (tool.name == "search") {
+                        val sources = remember(tool.detail) { SearchSourceCodec.decode(tool.detail) }
+                        if (sources.isNotEmpty()) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                sources.forEach { source -> SearchSourceChip(source) { onSourceClick(source) } }
+                            }
+                        } else {
+                            Text(
+                                if (tool.status == "Working") "Searching the web…" else "No links were returned",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else if (tool.name == "html_to_pdf") {
+                        ToolActivityPdfContent(message, tableCellMinWidth)
+                    } else if (tool.name == "thinking") {
+                        if (tool.detail.isNotBlank()) {
+                            MarkdownText(tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
+                        }
+                    } else if (tool.detail.isNotBlank()) {
+                        MarkdownText(tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ToolActivityPdfContent(message: KinoMessage, tableCellMinWidth: Int) {
+    val context = LocalContext.current
+    val tool = message.tool ?: return
+    val pdf = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
+    val filename = pdf?.optString("filename").orEmpty()
+    val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
+    if (safeFilename != null) {
+        Text(pdf?.optString("title").orEmpty().ifBlank { "PDF ready" }, style = MaterialTheme.typography.bodySmall)
+        val pdfUri = remember(safeFilename) {
+            val file = File(context.filesDir, "pdf-exports/$safeFilename")
+            if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    pdfUri?.let { uri ->
+                        val open = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching { context.startActivity(Intent.createChooser(open, "Open PDF")) }
+                            .onFailure { Toast.makeText(context, "No PDF viewer is available.", Toast.LENGTH_SHORT).show() }
+                    }
+                }, enabled = pdfUri != null,
+            ) { Text("Open PDF") }
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    pdfUri?.let { uri ->
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching { context.startActivity(Intent.createChooser(share, "Share PDF")) }
+                            .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                    }
+                }, enabled = pdfUri != null,
+            ) { Text("Share") }
+        }
+    } else {
+        Text(tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall)
     }
 }
 

@@ -53,6 +53,7 @@ internal class ChatGeneration(val chatId: String) {
     val cancelled = AtomicBoolean(false)
     @Volatile var job: Job? = null
     @Volatile var liveSearchToolId: Long? = null
+    @Volatile var liveThinkingToolId: Long? = null
 }
 
 internal data class GenerationRevision(val chatId: String, val sequence: Long)

@@ -54,7 +54,13 @@ class LocalToolRegistry(
                     "wait_for" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("query", false); stringArgument("text", false); stringArgument("state", false); require(listOf("element_id", "selector", "query", "text").count { arguments.has(it) } == 1) { "wait_for needs exactly one element_id, selector/query, or text." }; if (arguments.has("timeout_ms")) require(arguments.opt("timeout_ms") is Number) }
                     "press_key" -> { stringArgument("key", true); stringArgument("element_id", false) }
                     "hover" -> stringArgument("element_id", true)
-                    "select_option" -> { stringArgument("selector", true); stringArgument("value", true) }
+                    "select_option" -> {
+                        stringArgument("selector", false)
+                        stringArgument("element_id", false)
+                        stringArgument("frame_selector", false)
+                        stringArgument("value", true)
+                        require(arguments.has("selector") || arguments.has("element_id")) { "select_option needs selector or element_id." }
+                    }
                     "query" -> { stringArgument("selector", true); stringArgument("mode", false); stringArgument("frame_selector", false) }
                     "element_state" -> stringArgument("selector", true)
                     "links", "tables" -> { if (arguments.has("offset")) require(arguments.opt("offset") is Number); if (arguments.has("limit")) require(arguments.opt("limit") is Number) }

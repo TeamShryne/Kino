@@ -236,7 +236,27 @@ class KinoViewModel(
             tool = ToolActivity("thinking", "Working", ""),
             kind = "thinking",
         )
+        generation(chatId).liveThinkingToolId = message.id
         updateLiveTools(chatId) { it + message }
+    }
+
+    private fun ensureThinkingTool(chatId: String) {
+        val state = generation(chatId)
+        val id = state.liveThinkingToolId
+        if (id == null || state.tools.value.none { it.id == id }) startThinkingTool(chatId)
+    }
+
+    private fun finishThinkingTools(chatId: String) {
+        updateLiveTools(chatId) { current ->
+            current.map { message ->
+                if (message.tool?.name == "thinking" && message.tool.status in setOf("Preparing", "Working")) {
+                    message.copy(tool = message.tool.copy(status = "Done"))
+                } else {
+                    message
+                }
+            }
+        }
+        generation(chatId).liveThinkingToolId = null
     }
 
     private fun startLocalTool(chatId: String, name: String, label: String, summary: String, status: String = "Working"): Long {
@@ -304,10 +324,23 @@ class KinoViewModel(
 
     private fun appendThinkingTool(chatId: String, content: String) {
         if (content.isEmpty()) return
+        val state = generation(chatId)
+        val liveThinkingId = state.liveThinkingToolId
         updateLiveTools(chatId) { current ->
+            val liveIndex = liveThinkingId?.let { id -> current.indexOfFirst { it.id == id } } ?: -1
+            if (liveIndex >= 0) {
+                val last = current[liveIndex]
+                val activity = last.tool
+                if (activity?.name == "thinking") {
+                    return@updateLiveTools current.toMutableList().apply {
+                        this[liveIndex] = last.copy(tool = activity.copy(detail = (activity.detail + content).takeLast(MAX_THINKING_TRACE_CHARS)))
+                    }
+                }
+            }
             val last = current.lastOrNull()
             val activity = last?.tool
             if (last != null && activity?.name == "thinking") {
+                state.liveThinkingToolId = last.id
                 current.dropLast(1) + last.copy(tool = activity.copy(detail = (activity.detail + content).takeLast(MAX_THINKING_TRACE_CHARS)))
             } else {
                 current + KinoMessage(
@@ -318,7 +351,7 @@ class KinoViewModel(
                     createdAt = System.currentTimeMillis(),
                     tool = ToolActivity("thinking", "Working", content),
                     kind = "thinking",
-                )
+                ).also { state.liveThinkingToolId = it.id }
             }
         }
     }
@@ -485,6 +518,7 @@ class KinoViewModel(
         generation.text.value = ""
         generation.tools.value = emptyList()
         generation.liveSearchToolId = null
+        generation.liveThinkingToolId = null
         generationChanged(chatId)
         generation.job = runtime.scope.launch {
             generationChanged(chatId)
@@ -565,7 +599,7 @@ class KinoViewModel(
                                         "text_delta" -> {
                                             captureResponse(event.optString("content"))
                                         }
-                                        "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") startThinkingTool(chatId)
+                                        "thinking_fragment" -> if (event.optJSONObject("fragment")?.optString("type") == "THINK") ensureThinkingTool(chatId)
                                         "thinking_delta" -> appendThinkingTool(chatId, event.optString("content"))
                                         "fragment_delta" -> when (event.optString("fragment_type")) {
                                             "RESPONSE" -> {
@@ -616,6 +650,7 @@ class KinoViewModel(
                     }
                     val result = completionResult ?: throw completionError ?: error("DeepSeek completion returned no result.")
                     if (generation.cancelled.get()) error("Generation stopped by user.")
+                    finishThinkingTools(chatId)
                     session = result.optString("session_id", session)
                     parent = maxOf(result.optLong("response_message_id", parent), responseMessageCheckpoint.get())
                     usage = result.optLong("accumulated_token_usage", usage)
