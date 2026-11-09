@@ -23,10 +23,6 @@ data class LibraryState(val library: RuntimeLibrary, val installed: Boolean, val
 }
 
 class RuntimeLibraries(private val context: Context) {
-    companion object {
-        @Volatile private var loadedIronpressPath: String? = null
-    }
-
     private val root = File(context.noBackupFilesDir, "runtime-libraries")
     private val prefs = context.getSharedPreferences("runtime-libraries", Context.MODE_PRIVATE)
     private val abi get() = supportedAbis.firstOrNull { it in Build.SUPPORTED_ABIS } ?: Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
@@ -39,8 +35,10 @@ class RuntimeLibraries(private val context: Context) {
             for (i in 0 until rows.length()) {
                 val row = rows.getJSONObject(i)
                 val artifacts = row.getJSONArray("artifacts")
-                add(RuntimeLibrary(
-                    id = row.getString("id"), name = row.getString("name"), version = row.getString("version"),
+                val libraryId = row.getString("id")
+                // PDF rendering is built in via Android WebView; only Kino Core is offered.
+                if (libraryId == "kino-core") add(RuntimeLibrary(
+                    id = libraryId, name = row.getString("name"), version = row.getString("version"),
                     description = row.getString("description"), format = row.getString("format"), nativeLibrary = row.getString("native_library"),
                     classesFile = row.optString("classes_file").takeIf { it.isNotBlank() },
                     artifacts = buildList { for (j in 0 until artifacts.length()) { val a = artifacts.getJSONObject(j); add(LibraryArtifact(a.getString("abi"), a.getString("file_name"), a.getString("download_url"), a.getString("sha256"), a.getLong("size_bytes"))) } },
@@ -59,9 +57,9 @@ class RuntimeLibraries(private val context: Context) {
     }
 
     suspend fun install(library: RuntimeLibrary, progress: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
-        require(library.id in setOf("kino-core", "ironpress-pdf")) { "Unknown runtime library." }
+        require(library.id == "kino-core") { "Unknown runtime library." }
         require(library.nativeLibrary.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid native library name." }
-        require(library.format == if (library.id == "kino-core") "gomobile-dex-runtime-zip-v1" else "jni-runtime-zip-v1") { "Unsupported runtime package format." }
+        require(library.format == "gomobile-dex-runtime-zip-v1") { "Unsupported runtime package format." }
         require(library.artifacts.map { it.abi }.distinct().size == library.artifacts.size) { "Duplicate ABI packages in catalog." }
         val artifact = state(library).artifact ?: error("${library.name} is not available for this device (${abi.ifBlank { "unknown ABI" }}).")
         require(artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/")) { "Library URL is not trusted." }
@@ -102,14 +100,6 @@ class RuntimeLibraries(private val context: Context) {
             prefs.edit().putString("${library.id}.version", library.version).apply()
             archive.delete()
         } catch (error: Throwable) { archive.delete(); throw error }
-    }
-
-    fun loadIronpress() {
-        val version = prefs.getString("ironpress-pdf.version", null) ?: error("Install the PDF renderer from Settings > Libraries before generating PDFs.")
-        val file = nativeFile("ironpress-pdf", version, "libironpress_android.so")
-        if (loadedIronpressPath != file.absolutePath) synchronized(this) {
-            if (loadedIronpressPath != file.absolutePath) { System.load(file.absolutePath); loadedIronpressPath = file.absolutePath }
-        }
     }
 
     fun nativeFile(id: String, version: String, nativeLibrary: String): File = File(File(root, id), version).walkTopDown().firstOrNull { it.name == nativeLibrary && it.isFile } ?: error("Runtime library is not installed.")

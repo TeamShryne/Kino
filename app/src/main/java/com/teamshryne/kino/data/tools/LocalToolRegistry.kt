@@ -11,11 +11,33 @@ import kotlin.math.abs
 
 data class LocalToolResult(val name: String, val label: String, val detail: String)
 
+/**
+ * User-set (Settings → PDF) caps for HTML-to-PDF. Values are clamped to the
+ * hard maxima below, so settings can only make exports stricter, never
+ * looser than the tested budget. Defaults match the hard maxima.
+ */
+data class PdfLimits(
+    val maxPages: Int = LocalToolRegistry.MAX_PAGES,
+    val maxHtmlChars: Int = LocalToolRegistry.MAX_HTML_CHARS,
+    val maxPageChars: Int = LocalToolRegistry.MAX_PAGE_CHARS,
+    val maxPdfBytes: Long = LocalToolRegistry.MAX_PDF_BYTES.toLong(),
+) {
+    // Defaults (20 / 200 KB / 100 KB / 25 MB) are the factory values; Settings
+    // lets users go above them, so only absolute safety ceilings apply here.
+    fun sanitized(): PdfLimits = PdfLimits(
+        maxPages = maxPages.coerceIn(1, 100),
+        maxHtmlChars = maxHtmlChars.coerceIn(1024, 1024 * 1024),
+        maxPageChars = maxPageChars.coerceIn(1024, 512 * 1024),
+        maxPdfBytes = maxPdfBytes.coerceIn(1024 * 1024, 100L * 1024 * 1024),
+    )
+}
+
 /** A deliberately small, local-only tool surface. Tool arguments are validated again at execution. */
 class LocalToolRegistry(
     private val messages: suspend (String) -> List<KinoMessage>,
-    private val renderPdf: suspend (String, String) -> String,
+    private val renderPdf: suspend (String, List<String>, Boolean) -> String,
     private val browse: suspend (JSONObject) -> String,
+    private val pdfLimits: () -> PdfLimits = { PdfLimits() },
 ) {
     suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
         val spec = toolSpec(name) ?: error("Unknown tool: $name")
@@ -39,7 +61,9 @@ class LocalToolRegistry(
             }
             "html_to_pdf" -> {
                 stringArgument("title", false)
-                stringArgument("html", true)
+                stringArgument("html", false)
+                if (arguments.has("pages")) require(arguments.optJSONArray("pages") != null) { "pages must be an array of HTML strings." }
+                require(arguments.has("pages") != arguments.has("html")) { "Provide exactly one of pages or html for html_to_pdf." }
             }
             "browser" -> {
                 stringArgument("action", true)
@@ -82,10 +106,27 @@ class LocalToolRegistry(
         "search_chat" -> LocalToolResult(name, "Searched this chat", search(chatId, arguments))
         "html_to_pdf" -> {
             val title = arguments.optString("title", "Kino document").take(120).ifBlank { "Kino document" }
-            val html = arguments.getString("html")
-            require(html.length <= MAX_HTML_CHARS) { "HTML exceeds the ${MAX_HTML_CHARS / 1000} KB tool limit." }
-            val filename = renderPdf(title, html)
-            LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).toString())
+            val limits = pdfLimits().sanitized()
+            val (pages, paged) = if (arguments.has("pages")) {
+                val array = arguments.optJSONArray("pages") ?: error("pages must be an array.")
+                require(array.length() in 1..limits.maxPages) { "pages must contain 1–${limits.maxPages} HTML pages." }
+                val list = buildList {
+                    for (i in 0 until array.length()) {
+                        val page = array.optString(i)
+                        require(page.isNotBlank()) { "Each page in pages must be a non-empty HTML string." }
+                        require(page.length <= limits.maxPageChars) { "A single HTML page exceeds the ${limits.maxPageChars / 1000} KB limit." }
+                        add(page)
+                    }
+                }
+                require(list.sumOf { it.length } <= limits.maxHtmlChars) { "HTML exceeds the ${limits.maxHtmlChars / 1000} KB tool limit." }
+                list to true
+            } else {
+                val html = arguments.getString("html")
+                require(html.isNotBlank() && html.length <= limits.maxHtmlChars) { "HTML exceeds the ${limits.maxHtmlChars / 1000} KB tool limit." }
+                listOf(html) to false
+            }
+            val filename = renderPdf(title, pages, paged)
+            LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).put("pages", pages.size).toString())
         }
         "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
         else -> error("Unknown tool: $name")
@@ -135,6 +176,9 @@ class LocalToolRegistry(
 
     companion object {
         const val MAX_HTML_CHARS = 200_000
+        const val MAX_PAGE_CHARS = 100_000
+        const val MAX_PAGES = 20
+        const val MAX_PDF_BYTES = 25 * 1024 * 1024
         private const val MAX_RESULTS = 8
         private const val MAX_EXCERPT_CHARS = 360
         private const val MAX_SEARCH_OUTPUT_CHARS = 3_200
@@ -144,7 +188,7 @@ class LocalToolRegistry(
             ToolSpec("calculator", "calculator(expression: string): safe arithmetic evaluation", setOf("expression")),
             ToolSpec("date_time", "date_time(timezone?: string): current time in an IANA timezone; defaults to device timezone", setOf("timezone")),
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
-            ToolSpec("html_to_pdf", "html_to_pdf(title: string, html: string): render self-contained HTML as a shareable PDF; JavaScript and network resources are disabled", setOf("title", "html")),
+            ToolSpec("html_to_pdf", "html_to_pdf(title?: string, pages?: [string], html?: string): render responsive HTML as a shareable PDF with Android WebView; JavaScript runs before printing. Prefer pages: one HTML fragment per A4 page (e.g. <style>…</style><main>…</main>, no <html> wrapper needed — Kino wraps each page), typically 1–20 pages (user limits in Settings may allow more). Each page is EXACTLY 794 CSS px wide × 1123 CSS px tall (A4) and Kino adds 14mm/12mm padding: design inside ~700px usable width and ~980px usable height per page. No fixed widths, min-widths, or flex/grid rows wider than ~700px, no vw widths beyond 100vw, no horizontal scrolling; use width:100%, box-sizing:border-box, flexible wrapping grid/flex, relative units, and keep text in normal wrapping flow. Images max-width:100% (height auto), tables width:100% with small padding and wrapped cells. Kino auto-shrinks the page if anything overflows, so stay near one page per fragment. Inline <script> and data-URI images work; set window.__kinoPdfReady=true after async rendering. Legacy html (single flowing document) is also accepted.", setOf("title", "html", "pages")),
             ToolSpec("browser", "browser(action: open|read|click|type|scroll|wait_for|press_key|hover|select_option|query|element_state|links|tables|refresh|forward|back|tabs|images|close_tab|viewport|evaluate, url?, element_id?, selector?, frame_selector?, text?, state?, key?, value?, mode?, script?, query?, direction?, pages?, offset?, limit?, timeout_ms?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled. open/read prioritize named form fields and nearby buttons, including placeholders. type supports text inputs, textareas, and contenteditable fields, then returns updated controls. Displayed IDs such as a17 go in element_id, never in selector. wait_for can target element_id, real CSS selector/query, or text, with states visible/appear, hidden/disappear, attached, or detached. For example, wait_for(element_id=\"a17\", state=\"detached\") waits for that control to disappear. query supports CSS/XPath and same-origin iframe selection; links and tables return paged structured data; evaluate only accepts a safe editable-field assignment", setOf("action", "url", "element_id", "selector", "frame_selector", "text", "query", "direction", "pages", "tab_id", "new_tab", "state", "timeout_ms", "key", "value", "mode", "script", "offset", "limit")),
         )
 

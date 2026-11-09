@@ -71,11 +71,16 @@ class KinoViewModel(
     val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
     private val _firstRunCorePrompt = MutableStateFlow(!preferences.getBoolean("core_prompt_seen", false))
     val firstRunCorePrompt: StateFlow<Boolean> = _firstRunCorePrompt.asStateFlow()
-    private val _pdfLibraryPrompt = MutableStateFlow(false)
-    val pdfLibraryPrompt: StateFlow<Boolean> = _pdfLibraryPrompt.asStateFlow()
+    private fun currentPdfLimits() = com.teamshryne.kino.data.tools.PdfLimits(
+        maxPages = _pdfMaxPages.value,
+        maxHtmlChars = _pdfMaxHtmlKb.value * 1024,
+        maxPageChars = _pdfMaxPageKb.value * 1024,
+        maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
+    )
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
-        renderPdf = { title, html -> HtmlPdfRenderer(application).create(title, html) },
+        renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
+        pdfLimits = { currentPdfLimits() },
         browse = { arguments ->
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
@@ -94,6 +99,16 @@ class KinoViewModel(
     val showToolDetails: StateFlow<Boolean> = _showToolDetails.asStateFlow()
     private val _tableCellMinWidth = MutableStateFlow(preferences.getInt("table_cell_min_width", 112).coerceIn(64, 240))
     val tableCellMinWidth: StateFlow<Int> = _tableCellMinWidth.asStateFlow()
+    // Defaults are 20 pages / 200 KB / 100 KB / 25 MB; the ranges below are
+    // only absolute safety ceilings, so users may customise above defaults.
+    private val _pdfMaxPages = MutableStateFlow(preferences.getInt("pdf_max_pages", 20).coerceIn(1, 100))
+    val pdfMaxPages: StateFlow<Int> = _pdfMaxPages.asStateFlow()
+    private val _pdfMaxHtmlKb = MutableStateFlow(preferences.getInt("pdf_max_html_kb", 200).coerceIn(1, 1024))
+    val pdfMaxHtmlKb: StateFlow<Int> = _pdfMaxHtmlKb.asStateFlow()
+    private val _pdfMaxPageKb = MutableStateFlow(preferences.getInt("pdf_max_page_kb", 100).coerceIn(1, 512))
+    val pdfMaxPageKb: StateFlow<Int> = _pdfMaxPageKb.asStateFlow()
+    private val _pdfMaxMb = MutableStateFlow(preferences.getInt("pdf_max_mb", 25).coerceIn(1, 100))
+    val pdfMaxMb: StateFlow<Int> = _pdfMaxMb.asStateFlow()
     private val _deepSeekConnected = MutableStateFlow(credentialStore.load() != null)
     val deepSeekConnected: StateFlow<Boolean> = _deepSeekConnected.asStateFlow()
     private val _capabilities = MutableStateFlow<ProviderCapabilities?>(null)
@@ -196,13 +211,11 @@ class KinoViewModel(
             libraryManager.install(item) { received, total -> _libraryProgress.value = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f }
             refreshLibraries()
             if (id == "kino-core") dismissCorePrompt()
-            if (id == "ironpress-pdf") _pdfLibraryPrompt.value = false
         } catch (error: Exception) { _libraryError.value = error.message?.take(300) ?: "Library installation failed." }
         finally { _libraryBusy.value = null; _libraryProgress.value = 0f }
     }
 
     fun dismissCorePrompt() { preferences.edit().putBoolean("core_prompt_seen", true).apply(); _firstRunCorePrompt.value = false }
-    fun dismissPdfPrompt() { _pdfLibraryPrompt.value = false }
 
     fun openBrowser() { _browserOpen.value = true }
     fun toggleBrowser() { if (_browserOpen.value) closeBrowser() else openBrowser() }
@@ -683,7 +696,6 @@ class KinoViewModel(
                         toolRegistry.execute(chatId, call.name, call.arguments, browserEnabled = active.searchEnabled)
                     } catch (error: Exception) {
                         if (generation.cancelled.get()) throw error
-                        if (call.name == "html_to_pdf" && error.message?.contains("Install the PDF renderer", true) == true) _pdfLibraryPrompt.value = true
                         val reason = error.message?.take(500) ?: "Tool failed."
                         finishLocalTool(liveId, "Failed", reason)
                         null
@@ -1135,6 +1147,30 @@ class KinoViewModel(
         val width = widthDp.coerceIn(64, 240)
         preferences.edit().putInt("table_cell_min_width", width).apply()
         _tableCellMinWidth.value = width
+    }
+
+    fun setPdfMaxPages(pages: Int) {
+        val value = pages.coerceIn(1, 100)
+        preferences.edit().putInt("pdf_max_pages", value).apply()
+        _pdfMaxPages.value = value
+    }
+
+    fun setPdfMaxHtmlKb(kb: Int) {
+        val value = kb.coerceIn(1, 1024)
+        preferences.edit().putInt("pdf_max_html_kb", value).apply()
+        _pdfMaxHtmlKb.value = value
+    }
+
+    fun setPdfMaxPageKb(kb: Int) {
+        val value = kb.coerceIn(1, 512)
+        preferences.edit().putInt("pdf_max_page_kb", value).apply()
+        _pdfMaxPageKb.value = value
+    }
+
+    fun setPdfMaxMb(mb: Int) {
+        val value = mb.coerceIn(1, 100)
+        preferences.edit().putInt("pdf_max_mb", value).apply()
+        _pdfMaxMb.value = value
     }
 
     override fun onCleared() {
