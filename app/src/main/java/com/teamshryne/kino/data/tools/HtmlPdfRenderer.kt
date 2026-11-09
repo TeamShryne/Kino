@@ -205,39 +205,54 @@ class HtmlPdfRenderer(
      * (and its onLayout signature changed in API 35), so they cannot be used
      * from app code. Drawing the WebView onto PdfDocument canvases is the
      * supported headless path: the view is drawn in software so it renders.
-     * Draws the WebView one A4 page at a time: the view stays a single page
-     * tall and is scrolled per slice. (Resizing it to the full document
-     * height would make a pages×1123dp bitmap — hundreds of MB at high
-     * density — which janks or OOMs. One page at a time keeps the backing
-     * bitmap to a single A4 frame.) The delay between pages yields the main
-     * thread so the app never freezes while a PDF renders.
+     *
+     * Each `.kino-page` section is rendered on its own: hide all other
+     * sections, size the view to that section's height, then draw its
+     * 1123dp slices. Scrolling an off-screen WebView instead leaves pages
+     * after the first blank (its tiles never repaint off-viewport), and
+     * sizing the view to the whole document would allocate a
+     * pages×1123dp bitmap (hundreds of MB at high density — jank/OOM).
+     * One section at a time bounds the bitmap to a single tall section,
+     * and the delay between sections yields the main thread.
      */
     private suspend fun printToFile(webView: WebView, title: String, output: File) {
-        // Content height is reported in CSS px (== dp); convert to view px.
+        // Heights are reported in CSS px (== dp); convert to view px.
         val density = context.resources.displayMetrics.density
-        val contentHeightCss = measureContentHeight(webView, PAGE_HEIGHT_PX)
         val maxPages = limits.maxPages.coerceIn(1, MAX_PAGES)
-        val pageCount = (contentHeightCss + PAGE_HEIGHT_PX - 1) / PAGE_HEIGHT_PX
-        require(pageCount in 1..maxPages) { "PDF exceeds the $maxPages page limit." }
+        val sectionCount = evaluate(webView, "String(document.querySelectorAll('.kino-page').length)").toIntOrNull() ?: 1
+        require(sectionCount in 1..maxPages) { "PDF exceeds the $maxPages page limit." }
         val widthPx = dpToPx(PAGE_WIDTH_PX, density)
         val pageHeightPx = dpToPx(PAGE_HEIGHT_PX, density)
         webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         val pdf = PdfDocument()
         try {
             val scale = PAGE_WIDTH_PT.toFloat() / widthPx.toFloat()
-            for (pageIndex in 0 until pageCount) {
-                webView.scrollTo(0, pageIndex * pageHeightPx)
-                delay(PAGE_RENDER_DELAY_MS) // let the scrolled viewport paint
-                val info = PdfDocument.PageInfo.Builder(PAGE_WIDTH_PT, PAGE_HEIGHT_PT, pageIndex).create()
-                val page = pdf.startPage(info)
-                val canvas = page.canvas
-                canvas.save()
-                canvas.scale(scale, scale)
-                webView.draw(canvas)
-                canvas.restore()
-                pdf.finishPage(page)
+            var pdfPage = 0
+            for (sectionIndex in 0 until sectionCount) {
+                val sectionHeightCss = sectionHeight(webView, sectionIndex)
+                val slices = (sectionHeightCss + PAGE_HEIGHT_PX - 1) / PAGE_HEIGHT_PX
+                require(pdfPage + slices <= maxPages) { "PDF exceeds the $maxPages page limit." }
+                val sectionHeightPx = dpToPx(sectionHeightCss, density)
+                webView.measure(
+                    View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(sectionHeightPx, View.MeasureSpec.EXACTLY),
+                )
+                webView.layout(0, 0, widthPx, sectionHeightPx)
+                delay(PAGE_RENDER_DELAY_MS) // let the newly shown section paint
+                for (slice in 0 until slices) {
+                    val info = PdfDocument.PageInfo.Builder(PAGE_WIDTH_PT, PAGE_HEIGHT_PT, pdfPage).create()
+                    val page = pdf.startPage(info)
+                    val canvas = page.canvas
+                    canvas.save()
+                    canvas.scale(scale, scale)
+                    canvas.translate(0f, -slice * pageHeightPx.toFloat())
+                    webView.draw(canvas)
+                    canvas.restore()
+                    pdf.finishPage(page)
+                    delay(PAGE_RENDER_DELAY_MS)
+                    pdfPage++
+                }
             }
-            webView.scrollTo(0, 0)
             // File encoding happens off the main thread so it never janks chat UI.
             withContext(Dispatchers.IO) {
                 output.outputStream().use { pdf.writeTo(it) }
@@ -247,12 +262,19 @@ class HtmlPdfRenderer(
         }
     }
 
-    private suspend fun measureContentHeight(webView: WebView, fallbackCss: Int): Int {
+    /** Shows only section [index] and returns its height in CSS px. */
+    private suspend fun sectionHeight(webView: WebView, index: Int): Int {
         val value = evaluate(
             webView,
-            """(() => { const h = Math.max(document.body ? document.body.scrollHeight : 0, document.documentElement.scrollHeight, document.documentElement.offsetHeight); return String(h); })()""",
+            """(() => {
+              const secs = document.querySelectorAll('.kino-page');
+              secs.forEach((el, j) => { el.style.display = (j === $index) ? '' : 'none'; });
+              const sec = secs[$index];
+              const h = sec ? Math.max(sec.offsetHeight, sec.getBoundingClientRect().height) : ${PAGE_HEIGHT_PX};
+              return String(Math.ceil(h));
+            })()""",
         )
-        return (value.toIntOrNull() ?: fallbackCss).coerceIn(PAGE_HEIGHT_PX, MAX_PAGES * PAGE_HEIGHT_PX)
+        return (value.toIntOrNull() ?: PAGE_HEIGHT_PX).coerceIn(1, MAX_PAGES * PAGE_HEIGHT_PX)
     }
 
     private fun dpToPx(cssPx: Int, density: Float): Int = (cssPx * density).roundToInt()
