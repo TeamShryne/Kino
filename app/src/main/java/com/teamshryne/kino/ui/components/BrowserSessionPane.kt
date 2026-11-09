@@ -117,45 +117,13 @@ fun BrowserSessionPane(
 
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).alpha(if (visible) 1f else 0f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            Row(
-                Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                Icon(Icons.Rounded.DesktopWindows, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Kino Browser",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                    Text(
-                        when {
-                            state.userHasControl -> "You have control · Kino is waiting"
-                            state.loading -> "Kino is browsing · ${state.progress}%"
-                            else -> "Shared with this chat"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                    val progressLines = latestBrowserProgress(progressText)
-                    Box(Modifier.fillMaxWidth().height(20.dp)) {
-                        Text(
-                            progressLines,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                TextButton(onClick = { session.setUserControl(!state.userHasControl) }) {
-                    Text(if (state.userHasControl) "Return to Kino" else "Take control")
-                }
-                IconButton(onClick = onClose, colors = iconColors, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Close, "Close browser") }
-            }
+            BrowserTopHeader(
+                session = session,
+                state = state,
+                progressText = progressText,
+                onClose = onClose,
+                iconColors = iconColors,
+            )
 
             AndroidView(
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -172,12 +140,7 @@ fun BrowserSessionPane(
             )
             LaunchedEffect(state.activeTabId) { host.value?.let(session::renderInto) }
 
-            Box(Modifier.fillMaxWidth().height(2.dp)) {
-                if (state.loading) LinearProgressIndicator(
-                    progress = { state.progress / 100f },
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                )
-            }
+            BrowserProgressIndicator(state = state)
             state.message?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
             }
@@ -190,127 +153,255 @@ fun BrowserSessionPane(
                 )
             }
 
-            if (state.tabs.isNotEmpty()) {
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    state.tabs.forEach { tab ->
-                        Surface(
-                            modifier = Modifier.clickable { editingAddress = false; session.selectUserTab(tab.id) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (tab.id == state.activeTabId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-                        ) {
-                            Row(
-                                Modifier.width(160.dp).padding(start = 10.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(tab.title.ifBlank { "New tab" }, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                if (state.tabs.size > 1) IconButton(onClick = { editingAddress = false; session.closeUserTab(tab.id) }, colors = iconColors, modifier = Modifier.size(26.dp)) { Icon(Icons.Rounded.Close, "Close tab", modifier = Modifier.size(14.dp)) }
-                            }
-                        }
-                    }
-                    IconButton(onClick = { editingAddress = false; session.newUserTab(); address = "" }, enabled = state.tabs.size < KinoBrowserSession.MAX_TABS, colors = iconColors, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Rounded.Add, "New tab")
-                    }
-                }
-            }
+            BrowserTabsRow(
+                session = session,
+                state = state,
+                iconColors = iconColors,
+                onSelectTab = { editingAddress = false },
+                onCreateTab = { editingAddress = false; address = "" },
+            )
 
-            Row(
-                Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = 3.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                IconButton(onClick = { editingAddress = false; session.goBack() }, enabled = state.canGoBack, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowBack, "Back") }
-                IconButton(onClick = { editingAddress = false; session.goForward() }, enabled = state.canGoForward, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowForward, "Forward") }
-                IconButton(onClick = { editingAddress = false; session.reload() }, colors = iconColors, modifier = Modifier.size(36.dp)) {
-                    if (state.loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.Refresh, "Reload")
-                }
-                Box {
-                    TextButton(onClick = { engineMenuOpen = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
-                        Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(17.dp))
-                        Text(engineName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
-                        Icon(Icons.Rounded.ExpandMore, null, modifier = Modifier.size(17.dp))
-                    }
-                    DropdownMenu(expanded = engineMenuOpen, onDismissRequest = { engineMenuOpen = false }) {
-                        builtinSearchEngines.forEach { engine ->
-                            DropdownMenuItem(
-                                text = { Text(engine.name) },
-                                onClick = {
-                                    searchTemplate = engine.template
-                                    preferences.edit().putString("browser_search_engine_template", engine.template).apply()
-                                    engineMenuOpen = false
-                                },
-                            )
-                        }
-                        DropdownMenuItem(text = { Text("Custom search URL…") }, onClick = {
-                            customTemplate = if (engineName == "Custom") searchTemplate else "https://www.google.com/search?q=%s"
-                            customEngineDialog = true
-                            engineMenuOpen = false
-                        })
-                    }
-                }
-                OutlinedTextField(
-                    value = address,
-                    onValueChange = { address = it; editingAddress = true },
-                    modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) session.setUserControl(true) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    placeholder = { Text("Search or enter a URL", maxLines = 1) },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    keyboardActions = KeyboardActions(onGo = {
-                        editingAddress = false
-                        session.userNavigate(address, searchTemplate)
-                    }),
-                )
-                IconButton(
-                    onClick = { editingAddress = false; session.userNavigate(address, searchTemplate) },
-                    enabled = address.isNotBlank(),
-                    colors = iconColors,
-                    modifier = Modifier.size(38.dp),
-                ) { Icon(Icons.Rounded.OpenInBrowser, "Search or open address") }
-            }
+            BrowserAddressControls(
+                session = session,
+                state = state,
+                address = address,
+                editingAddress = editingAddress,
+                searchTemplate = searchTemplate,
+                engineName = engineName,
+                iconColors = iconColors,
+                onAddressChange = { address = it; editingAddress = true },
+                onEditingChange = { editingAddress = it },
+                onEngineSelected = { template ->
+                    searchTemplate = template
+                    preferences.edit().putString("browser_search_engine_template", template).apply()
+                },
+                onCustomEngineRequested = {
+                    customTemplate = if (engineName == "Custom") searchTemplate else "https://www.google.com/search?q=%s"
+                    customEngineDialog = true
+                },
+            )
         }
     }
 
     if (customEngineDialog) {
-        AlertDialog(
-            onDismissRequest = { customEngineDialog = false },
-            title = { Text("Custom search engine") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter an HTTPS search URL and include %s where the encoded query should go.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(
-                        value = customTemplate,
-                        onValueChange = { customTemplate = it },
-                        singleLine = true,
-                        placeholder = { Text("https://example.com/search?q=%s") },
-                    )
-                }
+        CustomSearchEngineDialog(
+            template = customTemplate,
+            onTemplateChange = { customTemplate = it },
+            onDismiss = { customEngineDialog = false },
+            onSave = { candidate ->
+                searchTemplate = candidate
+                preferences.edit().putString("browser_search_engine_template", candidate).apply()
+                customEngineDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val candidate = customTemplate.trim()
-                    if (candidate.startsWith("https://") && (candidate.contains("%s") || candidate.contains("{query}"))) {
-                        searchTemplate = candidate
-                        preferences.edit().putString("browser_search_engine_template", candidate).apply()
-                        customEngineDialog = false
-                    }
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { customEngineDialog = false }) { Text("Cancel") } },
         )
     }
 }
+
+@Composable
+private fun BrowserTopHeader(
+    session: KinoBrowserSession,
+    state: BrowserUiState,
+    progressText: String,
+    onClose: () -> Unit,
+    iconColors: androidx.compose.material3.IconButtonColors,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Icon(Icons.Rounded.DesktopWindows, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Kino Browser",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Text(
+                when {
+                    state.userHasControl -> "You have control · Kino is waiting"
+                    state.loading -> "Kino is browsing · ${state.progress}%"
+                    else -> "Shared with this chat"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            val progressLines = latestBrowserProgress(progressText)
+            Box(Modifier.fillMaxWidth().height(20.dp)) {
+                Text(
+                    progressLines,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        TextButton(onClick = { session.setUserControl(!state.userHasControl) }) {
+            Text(if (state.userHasControl) "Return to Kino" else "Take control")
+        }
+        IconButton(onClick = onClose, colors = iconColors, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Close, "Close browser") }
+    }
+}
+
+@Composable
+private fun BrowserProgressIndicator(state: BrowserUiState) {
+    Box(Modifier.fillMaxWidth().height(2.dp)) {
+        if (state.loading) LinearProgressIndicator(
+            progress = { state.progress / 100f },
+            modifier = Modifier.fillMaxWidth().height(2.dp),
+        )
+    }
+}
+
+@Composable
+private fun BrowserTabsRow(
+    session: KinoBrowserSession,
+    state: BrowserUiState,
+    iconColors: androidx.compose.material3.IconButtonColors,
+    onSelectTab: () -> Unit,
+    onCreateTab: () -> Unit,
+) {
+    if (state.tabs.isNotEmpty()) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            state.tabs.forEach { tab ->
+                Surface(
+                    modifier = Modifier.clickable { onSelectTab(); session.selectUserTab(tab.id) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (tab.id == state.activeTabId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Row(
+                        Modifier.width(160.dp).padding(start = 10.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(tab.title.ifBlank { "New tab" }, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        if (state.tabs.size > 1) IconButton(onClick = { onSelectTab(); session.closeUserTab(tab.id) }, colors = iconColors, modifier = Modifier.size(26.dp)) { Icon(Icons.Rounded.Close, "Close tab", modifier = Modifier.size(14.dp)) }
+                    }
+                }
+            }
+            IconButton(onClick = onCreateTab, enabled = state.tabs.size < KinoBrowserSession.MAX_TABS, colors = iconColors, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Rounded.Add, "New tab")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrowserAddressControls(
+    session: KinoBrowserSession,
+    state: BrowserUiState,
+    address: String,
+    editingAddress: Boolean,
+    searchTemplate: String,
+    engineName: String,
+    iconColors: androidx.compose.material3.IconButtonColors,
+    onAddressChange: (String) -> Unit,
+    onEditingChange: (Boolean) -> Unit,
+    onEngineSelected: (String) -> Unit,
+    onCustomEngineRequested: () -> Unit,
+) {
+    var engineMenuOpen by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = 3.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        IconButton(onClick = { onEditingChange(false); session.goBack() }, enabled = state.canGoBack, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowBack, "Back") }
+        IconButton(onClick = { onEditingChange(false); session.goForward() }, enabled = state.canGoForward, colors = iconColors, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.ArrowForward, "Forward") }
+        IconButton(onClick = { onEditingChange(false); session.reload() }, colors = iconColors, modifier = Modifier.size(36.dp)) {
+            if (state.loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Rounded.Refresh, "Reload")
+        }
+        Box {
+            TextButton(onClick = { engineMenuOpen = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
+                Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(17.dp))
+                Text(engineName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
+                Icon(Icons.Rounded.ExpandMore, null, modifier = Modifier.size(17.dp))
+            }
+            DropdownMenu(expanded = engineMenuOpen, onDismissRequest = { engineMenuOpen = false }) {
+                builtinSearchEngines.forEach { engine ->
+                    DropdownMenuItem(
+                        text = { Text(engine.name) },
+                        onClick = {
+                            onEngineSelected(engine.template)
+                            engineMenuOpen = false
+                        },
+                    )
+                }
+                DropdownMenuItem(text = { Text("Custom search URL…") }, onClick = {
+                    onCustomEngineRequested()
+                    engineMenuOpen = false
+                })
+            }
+        }
+        OutlinedTextField(
+            value = address,
+            onValueChange = onAddressChange,
+            modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) session.setUserControl(true) },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            placeholder = { Text("Search or enter a URL", maxLines = 1) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+            keyboardActions = KeyboardActions(onGo = {
+                onEditingChange(false)
+                session.userNavigate(address, searchTemplate)
+            }),
+        )
+        IconButton(
+            onClick = { onEditingChange(false); session.userNavigate(address, searchTemplate) },
+            enabled = address.isNotBlank(),
+            colors = iconColors,
+            modifier = Modifier.size(38.dp),
+        ) { Icon(Icons.Rounded.OpenInBrowser, "Search or open address") }
+    }
+}
+
+@Composable
+private fun CustomSearchEngineDialog(
+    template: String,
+    onTemplateChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom search engine") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Enter an HTTPS search URL and include %s where the encoded query should go.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = template,
+                    onValueChange = onTemplateChange,
+                    singleLine = true,
+                    placeholder = { Text("https://example.com/search?q=%s") },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val candidate = template.trim()
+                if (candidate.startsWith("https://") && (candidate.contains("%s") || candidate.contains("{query}"))) {
+                    onSave(candidate)
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 
 private fun latestBrowserProgress(detail: String): String = detail.takeLast(1_200)
     .lines()
