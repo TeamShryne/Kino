@@ -24,10 +24,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.zIndex
 import com.teamshryne.kino.ui.screens.ChatScreen
 import com.teamshryne.kino.ui.screens.ChatsScreen
 import com.teamshryne.kino.ui.screens.SettingsScreen
 import com.teamshryne.kino.ui.screens.DeepSeekLoginScreen
+import com.teamshryne.kino.ui.components.BrowserSessionPane
 
 private enum class MainTab(val title: String) { Chats("Chats"), Settings("Settings") }
 
@@ -58,6 +61,9 @@ fun KinoApp(model: KinoViewModel) {
     val libraryError by model.libraryError.collectAsState()
     val firstRunCorePrompt by model.firstRunCorePrompt.collectAsState()
     val pdfLibraryPrompt by model.pdfLibraryPrompt.collectAsState()
+    val browserOpen by model.browserOpen.collectAsState()
+    val browserState by model.browserState.collectAsState()
+    val browserProgress = streamingTools.lastOrNull { it.tool?.name == "thinking" }?.tool?.detail.orEmpty()
     var tab by rememberSaveable { mutableStateOf(MainTab.Chats) }
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -65,8 +71,9 @@ fun KinoApp(model: KinoViewModel) {
     val selectedChat = chats.firstOrNull { it.id == activeChat }
     // Keep in-app destinations above the Activity back action. Settings detail ->
     // settings list -> chats; an open conversation -> chats.
-    BackHandler(enabled = activeChat != null || tab == MainTab.Settings) {
+    BackHandler(enabled = browserOpen || activeChat != null || tab == MainTab.Settings) {
         when {
+            browserOpen -> model.closeBrowser()
             activeChat != null -> model.closeChat()
             settingsPage == "deepseek-login" -> settingsPage = "provider"
             settingsPage != null -> settingsPage = null
@@ -86,11 +93,22 @@ fun KinoApp(model: KinoViewModel) {
         )
     }
 
+    val kinoCoreState = libraryStates.firstOrNull { it.library.id == "kino-core" }
     if (firstRunCorePrompt) AlertDialog(
         onDismissRequest = model::dismissCorePrompt,
-        title = { Text("Install Kino Core") },
-        text = { Text("Kino Core is needed for chat, search, and file support. It will download once and stay in this app’s private storage.") },
-        confirmButton = { TextButton(onClick = { model.installLibrary("kino-core") }) { Text(if (libraryBusy == "kino-core") "Installing…" else "Install") } },
+        title = { Text(if (kinoCoreState?.updateAvailable == true) "Update Kino Core" else "Install Kino Core") },
+        text = {
+            Text(if (kinoCoreState?.updateAvailable == true) {
+                "Kino Core ${kinoCoreState.library.version} is available (installed: ${kinoCoreState.installedVersion}). Update it from private app storage to get the latest fixes. Restart Kino after updating to load the new core."
+            } else {
+                "Kino Core is needed for chat, search, and file support. It will download once and stay in this app’s private storage."
+            })
+        },
+        confirmButton = { TextButton(onClick = { model.installLibrary("kino-core") }) { Text(when {
+            libraryBusy == "kino-core" -> "Installing…"
+            kinoCoreState?.updateAvailable == true -> "Update"
+            else -> "Install"
+        }) } },
         dismissButton = { TextButton(onClick = model::dismissCorePrompt) { Text("Later") } },
     )
     if (pdfLibraryPrompt) AlertDialog(
@@ -102,6 +120,16 @@ fun KinoApp(model: KinoViewModel) {
     )
 
     if (activeChat != null) {
+        Box(Modifier.fillMaxSize()) {
+            BrowserSessionPane(
+                session = model.browserSession,
+                state = browserState,
+                visible = browserOpen,
+                progressText = browserProgress,
+                onClose = model::closeBrowser,
+                modifier = Modifier.fillMaxSize().zIndex(if (browserOpen) 1f else -1f),
+            )
+            Box(Modifier.fillMaxSize().zIndex(if (browserOpen) 0f else 1f)) {
         ChatScreen(
             title = selectedChat?.title ?: "New chat",
             messages = messages,
@@ -128,7 +156,11 @@ fun KinoApp(model: KinoViewModel) {
             onRemoveAttachment = model::removeAttachment,
             onStop = model::stopGeneration,
             onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
+            browserOpen = browserOpen,
+            onToggleBrowser = model::toggleBrowser,
         )
+            }
+        }
     } else {
         Scaffold(
             bottomBar = {

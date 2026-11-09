@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,6 +105,9 @@ fun SettingsScreen(
     onRefreshLibraries: () -> Unit,
 ) {
     var search by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(page) {
+        if (page == "libraries") onRefreshLibraries()
+    }
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 7.dp, end = 18.dp, top = 8.dp, bottom = 9.dp),
@@ -298,9 +302,23 @@ private fun LibrariesSettings(states: List<LibraryState>, busy: String?, progres
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(item.library.name, style = MaterialTheme.typography.titleMedium)
                     Text(item.library.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (item.installed) "Installed · ${item.installedVersion}" else "Version ${item.library.version} · ${item.artifact?.let { "${it.size / (1024 * 1024)} MB · ${it.abi}" } ?: "Unavailable for this device"}", style = MaterialTheme.typography.bodySmall)
+                    val artifactInfo = item.artifact?.let { "${it.size / (1024 * 1024)} MB · ${it.abi}" } ?: "Unavailable for this device"
+                    val versionInfo = when {
+                        item.installed -> "Installed · ${item.installedVersion}"
+                        item.updateAvailable -> "Update available · ${item.installedVersion} → ${item.library.version} · $artifactInfo"
+                        item.installedVersion != null -> "Installed · ${item.installedVersion} · catalog version ${item.library.version} · $artifactInfo"
+                        else -> "Version ${item.library.version} · $artifactInfo"
+                    }
+                    Text(versionInfo, style = MaterialTheme.typography.bodySmall)
                     if (busy == item.library.id) androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    androidx.compose.material3.Button(onClick = { onInstall(item.library.id) }, enabled = item.artifact != null && busy == null && !item.installed) { Text(if (busy == item.library.id) "Installing…" else if (item.installed) "Installed" else "Download and install") }
+                    androidx.compose.material3.Button(onClick = { onInstall(item.library.id) }, enabled = item.artifact != null && busy == null && !item.installed) {
+                        Text(when {
+                            busy == item.library.id -> "Installing…"
+                            item.installed -> "Installed"
+                            item.updateAvailable -> "Update library"
+                            else -> "Download and install"
+                        })
+                    }
                 }
             }
         }

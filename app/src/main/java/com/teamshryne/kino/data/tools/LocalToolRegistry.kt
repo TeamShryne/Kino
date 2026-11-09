@@ -2,6 +2,7 @@ package com.teamshryne.kino.data.tools
 
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
+import com.teamshryne.kino.data.browser.KinoBrowserSession
 import org.json.JSONObject
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -14,8 +15,9 @@ data class LocalToolResult(val name: String, val label: String, val detail: Stri
 class LocalToolRegistry(
     private val messages: suspend (String) -> List<KinoMessage>,
     private val renderPdf: suspend (String, String) -> String,
+    private val browse: suspend (JSONObject) -> String,
 ) {
-    suspend fun execute(chatId: String, name: String, arguments: JSONObject): LocalToolResult {
+    suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
         val spec = toolSpec(name) ?: error("Unknown tool: $name")
         val keys = arguments.keys().asSequence().toSet()
         require(keys.all { it in spec.allowedArguments }) { "Unexpected argument for $name." }
@@ -39,6 +41,36 @@ class LocalToolRegistry(
                 stringArgument("title", false)
                 stringArgument("html", true)
             }
+            "browser" -> {
+                stringArgument("action", true)
+                require(browserEnabled) { "Web browsing is turned off. Ask the user to enable Web browsing in Message options." }
+                when (arguments.getString("action")) {
+                    "open" -> { stringArgument("url", true); if (arguments.has("new_tab")) require(arguments.opt("new_tab") is Boolean) }
+                    "click" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("frame_selector", false); require(arguments.has("element_id") || arguments.has("selector")) { "click needs element_id or selector." } }
+                    "type" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("frame_selector", false); stringArgument("text", true); require(arguments.has("element_id") || arguments.has("selector")) { "type needs element_id or selector." } }
+                    "scroll" -> { stringArgument("direction", false); if (arguments.has("pages")) require(arguments.opt("pages") is Number) }
+                    "read" -> stringArgument("query", false)
+                    "tabs" -> stringArgument("tab_id", false)
+                    "wait_for" -> { stringArgument("element_id", false); stringArgument("selector", false); stringArgument("query", false); stringArgument("text", false); stringArgument("state", false); require(listOf("element_id", "selector", "query", "text").count { arguments.has(it) } == 1) { "wait_for needs exactly one element_id, selector/query, or text." }; if (arguments.has("timeout_ms")) require(arguments.opt("timeout_ms") is Number) }
+                    "press_key" -> { stringArgument("key", true); stringArgument("element_id", false) }
+                    "hover" -> stringArgument("element_id", true)
+                    "select_option" -> {
+                        stringArgument("selector", false)
+                        stringArgument("element_id", false)
+                        stringArgument("frame_selector", false)
+                        stringArgument("value", true)
+                        require(arguments.has("selector") || arguments.has("element_id")) { "select_option needs selector or element_id." }
+                    }
+                    "query" -> { stringArgument("selector", true); stringArgument("mode", false); stringArgument("frame_selector", false) }
+                    "element_state" -> stringArgument("selector", true)
+                    "links", "tables" -> { if (arguments.has("offset")) require(arguments.opt("offset") is Number); if (arguments.has("limit")) require(arguments.opt("limit") is Number) }
+                    "refresh", "forward", "images", "back", "close_tab" -> Unit
+                    "viewport" -> stringArgument("mode", true)
+                    "evaluate" -> stringArgument("script", true)
+                    else -> error("Unsupported browser action.")
+                }
+                if (arguments.has("tab_id")) stringArgument("tab_id", false)
+            }
         }
         val result = when (name) {
         "calculator" -> LocalToolResult(name, "Used calculator", Calculator.evaluate(arguments.getString("expression")))
@@ -55,6 +87,7 @@ class LocalToolRegistry(
             val filename = renderPdf(title, html)
             LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).toString())
         }
+        "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
         else -> error("Unknown tool: $name")
         }
         return result
@@ -112,6 +145,7 @@ class LocalToolRegistry(
             ToolSpec("date_time", "date_time(timezone?: string): current time in an IANA timezone; defaults to device timezone", setOf("timezone")),
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
             ToolSpec("html_to_pdf", "html_to_pdf(title: string, html: string): render self-contained HTML as a shareable PDF; JavaScript and network resources are disabled", setOf("title", "html")),
+            ToolSpec("browser", "browser(action: open|read|click|type|scroll|wait_for|press_key|hover|select_option|query|element_state|links|tables|refresh|forward|back|tabs|images|close_tab|viewport|evaluate, url?, element_id?, selector?, frame_selector?, text?, state?, key?, value?, mode?, script?, query?, direction?, pages?, offset?, limit?, timeout_ms?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled. open/read prioritize named form fields and nearby buttons, including placeholders. type supports text inputs, textareas, and contenteditable fields, then returns updated controls. Displayed IDs such as a17 go in element_id, never in selector. wait_for can target element_id, real CSS selector/query, or text, with states visible/appear, hidden/disappear, attached, or detached. For example, wait_for(element_id=\"a17\", state=\"detached\") waits for that control to disappear. query supports CSS/XPath and same-origin iframe selection; links and tables return paged structured data; evaluate only accepts a safe editable-field assignment", setOf("action", "url", "element_id", "selector", "frame_selector", "text", "query", "direction", "pages", "tab_id", "new_tab", "state", "timeout_ms", "key", "value", "mode", "script", "offset", "limit")),
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
@@ -121,6 +155,7 @@ class LocalToolRegistry(
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
             "html_to_pdf" -> "Created PDF"
+            "browser" -> "Browsed website"
             else -> "Used tool"
         }
         private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == name }
@@ -130,6 +165,28 @@ class LocalToolRegistry(
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"
             "html_to_pdf" -> "Working on PDF" to "Preparing ${arguments.optString("title").ifBlank { "document" }.take(100)}"
+            "browser" -> "Browsing the web" to when (arguments.optString("action")) {
+                "open" -> "Opening ${arguments.optString("url").take(100)}"
+                "click" -> "Following page control ${arguments.optString("element_id").take(16)}"
+                "type" -> "Filling a visible, non-password field"
+                "wait_for" -> "Waiting for page content"
+                "press_key" -> "Sending ${arguments.optString("key").take(20)} key"
+                "hover" -> "Hovering over a page control"
+                "select_option" -> "Choosing a form option"
+                "query" -> "Inspecting selected page elements"
+                "element_state" -> "Checking a page control's state"
+                "links" -> "Collecting page links"
+                "tables" -> "Extracting table data"
+                "refresh" -> "Refreshing the page"
+                "forward" -> "Going forward one page"
+                "viewport" -> "Switching to ${arguments.optString("mode").take(20)} view"
+                "evaluate" -> "Updating a form field safely"
+                "scroll" -> "Reading the next page section"
+                "tabs" -> "Checking open tabs"
+                "images" -> "Collecting visible image URLs"
+                "back" -> "Going back one page"
+                else -> "Reading the current page"
+            }
             else -> "Running tool" to "Validating request"
         }
     }
