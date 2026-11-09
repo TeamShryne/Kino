@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicLong
 private const val MAX_THINKING_TRACE_CHARS = 1_200
 private const val MAX_COMPLETION_ATTEMPTS = 3
 private const val COMPLETION_RETRY_DELAY_MS = 3_000L
+private const val RATE_LIMIT_RETRY_DELAY_MS = 30_000L
 
 class KinoViewModel(
     application: Application,
@@ -544,6 +545,8 @@ class KinoViewModel(
                     var completionError: Exception? = null
                     for (attempt in 1..MAX_COMPLETION_ATTEMPTS) {
                         try {
+                            runtime.completionPacer.waitForSlot(generation.cancelled)
+                            if (generation.cancelled.get()) error("Generation stopped by user.")
                             completionResult = provider.complete(
                                 sessionId = session,
                                 parentMessageId = parent,
@@ -608,7 +611,7 @@ class KinoViewModel(
                             turnText.setLength(0)
                             responseFragmentText = null
                             setLiveText(chatId, "")
-                            kotlinx.coroutines.delay(COMPLETION_RETRY_DELAY_MS)
+                            kotlinx.coroutines.delay(if (error.hasRateLimit()) RATE_LIMIT_RETRY_DELAY_MS else COMPLETION_RETRY_DELAY_MS)
                         }
                     }
                     val result = completionResult ?: throw completionError ?: error("DeepSeek completion returned no result.")
@@ -759,11 +762,22 @@ class KinoViewModel(
         return false
     }
 
+    private fun Throwable.hasRateLimit(): Boolean {
+        var cause: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (cause != null && seen.add(cause)) {
+            val message = cause.message?.lowercase().orEmpty()
+            if (message.contains("rate_limit_reached") || message.contains("rate limit") || message.contains("messages too frequent")) return true
+            cause = cause.cause
+        }
+        return false
+    }
+
     private fun Throwable.isTransientCompletionError(): Boolean {
         var cause: Throwable? = this
         val seen = mutableSetOf<Throwable>()
         while (cause != null && seen.add(cause)) {
-            if (cause.hasUnexpectedEof() || cause.hasMissingResponseId()) return true
+            if (cause.hasUnexpectedEof() || cause.hasMissingResponseId() || cause.hasRateLimit()) return true
             val className = cause::class.java.name.lowercase()
             val message = cause.message?.lowercase().orEmpty()
             if (className.contains("socket") ||
