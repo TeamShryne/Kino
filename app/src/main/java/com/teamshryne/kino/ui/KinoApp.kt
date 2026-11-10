@@ -323,8 +323,6 @@ fun KinoApp(model: KinoViewModel) {
                             onQuery = { query = it },
                             onOpen = model::openChat,
                             onDelete = { deleteTarget = it },
-                            onRefresh = model::refresh,
-                            onSettings = { tab = MainTab.Settings; settingsPage = null },
                         )
                     }
                 }
