@@ -738,7 +738,7 @@ private fun Composer(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     val plusRotation by animateFloatAsState(if (optionsOpen) 45f else 0f, label = "composer plus rotation")
-                    IconButton(onClick = { optionsOpen = true }, enabled = !isBusy, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { optionsOpen = true }, enabled = true, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Rounded.Add, "More options", modifier = Modifier.size(25.dp).rotate(plusRotation), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     BasicTextField(

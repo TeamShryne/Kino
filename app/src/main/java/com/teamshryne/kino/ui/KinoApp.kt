@@ -1,5 +1,13 @@
 package com.teamshryne.kino.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -157,133 +165,169 @@ fun KinoApp(model: KinoViewModel) {
         }
         return
     }
-    if (activeChat != null) {
-        Box(Modifier.fillMaxSize()) {
-            BrowserSessionPane(
-                session = model.browserSession,
-                state = browserState,
-                visible = browserOpen,
-                progressText = browserProgress,
-                onClose = model::closeBrowser,
-                modifier = Modifier.fillMaxSize().zIndex(if (browserOpen) 1f else -1f),
-            )
-            Box(Modifier.fillMaxSize().zIndex(if (browserOpen) 0f else 1f)) {
-        ChatScreen(
-            title = selectedChat?.title ?: "New chat",
-            messages = messages,
-            showToolDetails = showToolDetails,
-            tableCellMinWidth = tableCellMinWidth,
-            onBack = model::closeChat,
-            onDelete = { deleteTarget = activeChat },
-            onSend = model::send,
-            models = capabilities?.models.orEmpty(),
-            selectedModel = selectedModel,
-            thinkingEnabled = thinkingEnabled,
-            searchEnabled = searchEnabled,
-            contextTokens = contextTokens,
-            contextLimit = if (thinkingEnabled) capabilities?.thinkingContextLimit ?: 0 else capabilities?.normalContextLimit ?: 0,
-            isBusy = isStreaming,
-            liveText = streamingText,
-            liveTools = streamingTools,
-            error = providerError,
-            attachedFiles = attachedFiles,
-            onModelChange = model::setSelectedModel,
-            onThinkingChange = model::setThinking,
-            onSearchChange = model::setSearch,
-            onAttach = model::attachFiles,
-            onRemoveAttachment = model::removeAttachment,
-            onStop = model::stopGeneration,
-            onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
-            browserOpen = browserOpen,
-            onToggleBrowser = model::toggleBrowser,
-        )
+    AnimatedContent(
+        targetState = activeChat != null,
+        transitionSpec = {
+            if (targetState) {
+                (slideInHorizontally(tween(200, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(160, easing = FastOutSlowInEasing))) togetherWith
+                    (slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(160, easing = FastOutSlowInEasing)))
+            } else {
+                (slideInHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it / 4 } + fadeIn(tween(160, easing = FastOutSlowInEasing))) togetherWith
+                    (slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(160, easing = FastOutSlowInEasing)))
             }
-        }
-    } else {
-        Scaffold(
-            bottomBar = {
-                if (settingsPage == null) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                        MainTab.entries.forEach { item ->
-                            NavigationBarItem(
-                                selected = tab == item,
-                                onClick = { tab = item },
-                                icon = { Icon(if (item == MainTab.Chats) Icons.Rounded.AutoAwesome else Icons.Rounded.Settings, item.title) },
-                                label = { Text(item.title) },
-                            )
-                        }
-                    }
-                }
-            },
-            floatingActionButton = {
-                if (tab == MainTab.Chats) {
-                    ExtendedFloatingActionButton(
-                        onClick = { model.newChat() },
-                        icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        text = { Text("New chat") },
+        },
+        label = "chat-transition",
+    ) { isChat ->
+        if (isChat) {
+            Box(Modifier.fillMaxSize()) {
+                BrowserSessionPane(
+                    session = model.browserSession,
+                    state = browserState,
+                    visible = browserOpen,
+                    progressText = browserProgress,
+                    onClose = model::closeBrowser,
+                    modifier = Modifier.fillMaxSize().zIndex(if (browserOpen) 1f else -1f),
+                )
+                Box(Modifier.fillMaxSize().zIndex(if (browserOpen) 0f else 1f)) {
+                    ChatScreen(
+                        title = selectedChat?.title ?: "New chat",
+                        messages = messages,
+                        showToolDetails = showToolDetails,
+                        tableCellMinWidth = tableCellMinWidth,
+                        onBack = model::closeChat,
+                        onDelete = { deleteTarget = activeChat },
+                        onSend = model::send,
+                        models = capabilities?.models.orEmpty(),
+                        selectedModel = selectedModel,
+                        thinkingEnabled = thinkingEnabled,
+                        searchEnabled = searchEnabled,
+                        contextTokens = contextTokens,
+                        contextLimit = if (thinkingEnabled) capabilities?.thinkingContextLimit ?: 0 else capabilities?.normalContextLimit ?: 0,
+                        isBusy = isStreaming,
+                        liveText = streamingText,
+                        liveTools = streamingTools,
+                        error = providerError,
+                        attachedFiles = attachedFiles,
+                        onModelChange = model::setSelectedModel,
+                        onThinkingChange = model::setThinking,
+                        onSearchChange = model::setSearch,
+                        onAttach = model::attachFiles,
+                        onRemoveAttachment = model::removeAttachment,
+                        onStop = model::stopGeneration,
+                        onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
+                        browserOpen = browserOpen,
+                        onToggleBrowser = model::toggleBrowser,
                     )
                 }
-            },
-            containerColor = MaterialTheme.colorScheme.background,
-        ) { insets ->
-            Box(Modifier.fillMaxSize().padding(insets)) {
-                if (tab == MainTab.Settings && settingsPage == "deepseek-login") DeepSeekLoginScreen(
-                    dark = dark,
-                    connected = deepSeekConnected,
-                    onCredentials = model::saveDeepSeekCredentials,
-                    onBack = { settingsPage = "provider" },
-                ) else if (tab == MainTab.Settings) SettingsScreen(
-                    page = settingsPage,
-                    dark = dark,
-                    themeMode = themeMode,
-                    showToolDetails = showToolDetails,
-                    tableCellMinWidth = tableCellMinWidth,
-                    onBack = { settingsPage = null },
-                    onOpen = { settingsPage = it },
-                    onThemeChange = model::setDarkTheme,
-                    onThemeModeChange = model::setThemeMode,
-                    onToolDetailChange = model::setShowToolDetails,
-                    onTableCellMinWidthChange = model::setTableCellMinWidth,
-                    pdfMaxPages = pdfMaxPages,
-                    pdfMaxHtmlKb = pdfMaxHtmlKb,
-                    pdfMaxPageKb = pdfMaxPageKb,
-                    pdfMaxMb = pdfMaxMb,
-                    onPdfMaxPagesChange = model::setPdfMaxPages,
-                    onPdfMaxHtmlKbChange = model::setPdfMaxHtmlKb,
-                    onPdfMaxPageKbChange = model::setPdfMaxPageKb,
-                    onPdfMaxMbChange = model::setPdfMaxMb,
-                    deepSeekConnected = deepSeekConnected,
-                    models = capabilities?.models.orEmpty(),
-                    selectedModel = selectedModel,
-                    thinkingEnabled = thinkingEnabled,
-                    searchEnabled = searchEnabled,
-                    providerError = providerError,
-                    providerBusy = providerBusy,
-                    onConnect = { settingsPage = "deepseek-login" },
-                    onDisconnect = model::disconnectDeepSeek,
-                    onRefreshModels = model::refreshCapabilities,
-                    onModelChange = model::setSelectedModel,
-                    onThinkingChange = model::setThinking,
-                    onSearchChange = model::setSearch,
-                    remoteSessions = remoteSessions,
-                    onRefreshSessions = model::refreshRemoteSessions,
-                    onOpenRemoteSession = model::openRemoteSession,
-                    onPinRemoteSession = model::pinRemoteSession,
-                    onDeleteRemoteSession = model::deleteRemoteSession,
-                    onRenameRemoteSession = model::renameRemoteSession,
-                    libraryStates = libraryStates,
-                    libraryBusy = libraryBusy,
-                    libraryProgress = libraryProgress,
-                    libraryError = libraryError,
-                    onInstallLibrary = model::installLibrary,
-                    onRefreshLibraries = model::refreshLibraries,
-                ) else ChatsScreen(
-                    chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
-                    query = query,
-                    onQuery = { query = it },
-                    onOpen = model::openChat,
-                    onDelete = { deleteTarget = it },
-                )
+            }
+        } else {
+            Scaffold(
+                bottomBar = {
+                    if (settingsPage == null) {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                            MainTab.entries.forEach { item ->
+                                NavigationBarItem(
+                                    selected = tab == item,
+                                    onClick = { tab = item },
+                                    icon = { Icon(if (item == MainTab.Chats) Icons.Rounded.AutoAwesome else Icons.Rounded.Settings, item.title) },
+                                    label = { Text(item.title) },
+                                )
+                            }
+                        }
+                    }
+                },
+                floatingActionButton = {
+                    if (tab == MainTab.Chats) {
+                        ExtendedFloatingActionButton(
+                            onClick = { model.newChat() },
+                            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                            text = { Text("New chat") },
+                        )
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.background,
+            ) { insets ->
+                Box(Modifier.fillMaxSize().padding(insets)) {
+                    AnimatedContent(
+                        targetState = tab to settingsPage,
+                        transitionSpec = {
+                            val forward = when {
+                                initialState.first != targetState.first -> targetState.first == MainTab.Settings
+                                initialState.second == null && targetState.second != null -> true
+                                initialState.second != null && targetState.second == null -> false
+                                else -> true
+                            }
+                            if (forward) {
+                                (slideInHorizontally(tween(180, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(140, easing = FastOutSlowInEasing))) togetherWith
+                                    (slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -it / 3 } + fadeOut(tween(140, easing = FastOutSlowInEasing)))
+                            } else {
+                                (slideInHorizontally(tween(180, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(140, easing = FastOutSlowInEasing))) togetherWith
+                                    (slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(140, easing = FastOutSlowInEasing)))
+                            }
+                        },
+                        label = "home-transition",
+                    ) { (currentTab, currentPage) ->
+                        if (currentTab == MainTab.Settings && currentPage == "deepseek-login") DeepSeekLoginScreen(
+                            dark = dark,
+                            connected = deepSeekConnected,
+                            onCredentials = model::saveDeepSeekCredentials,
+                            onBack = { settingsPage = "provider" },
+                        ) else if (currentTab == MainTab.Settings) SettingsScreen(
+                            page = currentPage,
+                            dark = dark,
+                            themeMode = themeMode,
+                            showToolDetails = showToolDetails,
+                            tableCellMinWidth = tableCellMinWidth,
+                            onBack = { settingsPage = null },
+                            onOpen = { settingsPage = it },
+                            onThemeChange = model::setDarkTheme,
+                            onThemeModeChange = model::setThemeMode,
+                            onToolDetailChange = model::setShowToolDetails,
+                            onTableCellMinWidthChange = model::setTableCellMinWidth,
+                            pdfMaxPages = pdfMaxPages,
+                            pdfMaxHtmlKb = pdfMaxHtmlKb,
+                            pdfMaxPageKb = pdfMaxPageKb,
+                            pdfMaxMb = pdfMaxMb,
+                            onPdfMaxPagesChange = model::setPdfMaxPages,
+                            onPdfMaxHtmlKbChange = model::setPdfMaxHtmlKb,
+                            onPdfMaxPageKbChange = model::setPdfMaxPageKb,
+                            onPdfMaxMbChange = model::setPdfMaxMb,
+                            deepSeekConnected = deepSeekConnected,
+                            models = capabilities?.models.orEmpty(),
+                            selectedModel = selectedModel,
+                            thinkingEnabled = thinkingEnabled,
+                            searchEnabled = searchEnabled,
+                            providerError = providerError,
+                            providerBusy = providerBusy,
+                            onConnect = { settingsPage = "deepseek-login" },
+                            onDisconnect = model::disconnectDeepSeek,
+                            onRefreshModels = model::refreshCapabilities,
+                            onModelChange = model::setSelectedModel,
+                            onThinkingChange = model::setThinking,
+                            onSearchChange = model::setSearch,
+                            remoteSessions = remoteSessions,
+                            onRefreshSessions = model::refreshRemoteSessions,
+                            onOpenRemoteSession = model::openRemoteSession,
+                            onPinRemoteSession = model::pinRemoteSession,
+                            onDeleteRemoteSession = model::deleteRemoteSession,
+                            onRenameRemoteSession = model::renameRemoteSession,
+                            libraryStates = libraryStates,
+                            libraryBusy = libraryBusy,
+                            libraryProgress = libraryProgress,
+                            libraryError = libraryError,
+                            onInstallLibrary = model::installLibrary,
+                            onRefreshLibraries = model::refreshLibraries,
+                        ) else ChatsScreen(
+                            chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
+                            query = query,
+                            onQuery = { query = it },
+                            onOpen = model::openChat,
+                            onDelete = { deleteTarget = it },
+                            onRefresh = model::refresh,
+                            onSettings = { tab = MainTab.Settings; settingsPage = null },
+                        )
+                    }
+                }
             }
         }
     }
