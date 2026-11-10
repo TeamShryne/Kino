@@ -21,9 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -56,8 +54,6 @@ fun ChatsScreen(
     onQuery: (String) -> Unit,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onSettings: () -> Unit,
 ) {
     var searchOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -75,12 +71,7 @@ fun ChatsScreen(
             }) {
                 Icon(if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search, if (searchOpen) "Close search" else "Search chats", modifier = Modifier.size(21.dp))
             }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Rounded.Refresh, "Refresh chats", modifier = Modifier.size(21.dp))
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Rounded.Settings, "Settings", modifier = Modifier.size(21.dp))
-            }
+
         }
 
         AnimatedVisibility(searchOpen || query.isNotBlank()) {

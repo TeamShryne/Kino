@@ -470,15 +470,16 @@ class KinoViewModel(
         refresh()
     }
 
-    fun newChat() = viewModelScope.launch {
-        val id = conversations.createChat()
+    fun newChat() {
+        // A new chat is kept as an in-memory draft until the first message is
+        // sent, so empty conversations never pollute the saved chat list.
+        val id = "draft-${UUID.randomUUID()}"
         _activeChat.value = id
         _messages.value = emptyList()
         _contextTokens.value = 0
         _thinkingEnabled.value = false
         _searchEnabled.value = false
         publishGeneration(id)
-        _chats.value = conversations.chats()
     }
 
     fun send(text: String) = viewModelScope.launch {
@@ -493,7 +494,12 @@ class KinoViewModel(
             _providerError.value = "Connect DeepSeek in Settings before sending a message."
             return@launch
         }
-        val chatId = _activeChat.value ?: conversations.createChat(body.take(48)).also { _activeChat.value = it }
+        val active = _activeChat.value
+        val chatId = when {
+            active == null -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            active.startsWith("draft-") -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            else -> active
+        }
         val requestedModelId = _selectedModel.value
         val requestedThinking = _thinkingEnabled.value
         val requestedSearch = _searchEnabled.value
@@ -1128,6 +1134,7 @@ class KinoViewModel(
         }
 
     fun deleteChat(id: String) = viewModelScope.launch {
+        if (id.startsWith("draft-")) { closeChat(); return@launch }
         generations[id]?.let { generation ->
             generation.cancelled.set(true)
             generationChanged(id)

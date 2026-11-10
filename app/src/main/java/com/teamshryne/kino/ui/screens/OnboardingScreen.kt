@@ -51,6 +51,8 @@ import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Link
@@ -85,11 +87,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import com.teamshryne.kino.data.libraries.LibraryState
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-private enum class OnboardingArt { Welcome, Chat, Tools, Private, Connect, Appearance, Finish }
+private enum class OnboardingArt { Welcome, Chat, Tools, Libraries, Connect, Appearance, Finish }
 
 private data class OnboardingPage(
     val title: String,
@@ -114,9 +117,9 @@ private val onboardingPages = listOf(
         OnboardingArt.Tools,
     ),
     OnboardingPage(
-        "Private by design",
-        "Your history lives in local storage and your session is encrypted on this device.",
-        OnboardingArt.Private,
+        "Install Kino Core",
+        "Kino Core powers chat, search, and file support. Download it now to get started — this step is required.",
+        OnboardingArt.Libraries,
     ),
     OnboardingPage(
         "Bring your DeepSeek account",
@@ -135,6 +138,7 @@ private val onboardingPages = listOf(
     ),
 )
 
+private const val LIBRARIES_PAGE = 3
 private const val CONNECT_PAGE = 4
 private const val APPEARANCE_PAGE = 5
 private const val FINISH_PAGE = 6
@@ -155,15 +159,21 @@ private fun artAccent(index: Int): Color = ArtAccents[index % ArtAccents.size]
 fun OnboardingScreen(
     dark: Boolean,
     connected: Boolean,
+    libraries: List<LibraryState> = emptyList(),
+    libraryBusy: String? = null,
+    libraryProgress: Float = 0f,
+    libraryError: String? = null,
     onThemeChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
+    onInstallLibrary: (String) -> Unit = {},
+    onRefreshLibraries: () -> Unit = {},
     onFinish: () -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { onboardingPages.size })
     val scope = rememberCoroutineScope()
     val currentPage = pagerState.currentPage
     var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
+    LaunchedEffect(Unit) { entered = true; onRefreshLibraries() }
     val enterAlpha by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
         animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
@@ -193,8 +203,14 @@ fun OnboardingScreen(
                     pagerState = pagerState,
                     dark = dark,
                     connected = connected,
+                    libraries = libraries,
+                    libraryBusy = libraryBusy,
+                    libraryProgress = libraryProgress,
+                    libraryError = libraryError,
                     onThemeChange = onThemeChange,
                     onConnect = onConnect,
+                    onInstallLibrary = onInstallLibrary,
+                    onRefreshLibraries = onRefreshLibraries,
                     onContinue = { scope.launch { pagerState.animateScrollToPage(page + 1) } },
                     onFinish = onFinish,
                 )
@@ -215,8 +231,14 @@ private fun OnboardingPageContent(
     pagerState: PagerState,
     dark: Boolean,
     connected: Boolean,
+    libraries: List<LibraryState>,
+    libraryBusy: String?,
+    libraryProgress: Float,
+    libraryError: String?,
     onThemeChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
+    onInstallLibrary: (String) -> Unit,
+    onRefreshLibraries: () -> Unit,
     onContinue: () -> Unit,
     onFinish: () -> Unit,
 ) {
@@ -283,8 +305,14 @@ private fun OnboardingPageContent(
                     page = page,
                     dark = dark,
                     connected = connected,
+                    libraries = libraries,
+                    libraryBusy = libraryBusy,
+                    libraryProgress = libraryProgress,
+                    libraryError = libraryError,
                     onThemeChange = onThemeChange,
                     onConnect = onConnect,
+                    onInstallLibrary = onInstallLibrary,
+                    onRefreshLibraries = onRefreshLibraries,
                     onContinue = onContinue,
                     onFinish = onFinish,
                 )
@@ -299,15 +327,33 @@ private fun OnboardingPageAction(
     page: Int,
     dark: Boolean,
     connected: Boolean,
+    libraries: List<LibraryState>,
+    libraryBusy: String?,
+    libraryProgress: Float,
+    libraryError: String?,
     onThemeChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
+    onInstallLibrary: (String) -> Unit,
+    onRefreshLibraries: () -> Unit,
     onContinue: () -> Unit,
     onFinish: () -> Unit,
 ) {
     when (page) {
+        LIBRARIES_PAGE -> LibrariesAction(
+            libraries = libraries,
+            busy = libraryBusy,
+            progress = libraryProgress,
+            error = libraryError,
+            onInstall = onInstallLibrary,
+            onRefresh = onRefreshLibraries,
+            onContinue = onContinue,
+        )
         CONNECT_PAGE -> ConnectAction(connected = connected, onConnect = onConnect, onContinue = onContinue)
         APPEARANCE_PAGE -> AppearanceAction(dark = dark, onThemeChange = onThemeChange)
-        FINISH_PAGE -> FinishAction(onFinish = onFinish)
+        FINISH_PAGE -> FinishAction(
+            coreInstalled = libraries.any { it.library.id == "kino-core" && it.installed },
+            onFinish = onFinish,
+        )
     }
 }
 
@@ -369,13 +415,79 @@ private fun AppearanceAction(dark: Boolean, onThemeChange: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun FinishAction(onFinish: () -> Unit) {
+private fun FinishAction(coreInstalled: Boolean, onFinish: () -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        PrimaryPillButton(
-            text = "Start chatting",
-            icon = Icons.Rounded.AutoAwesome,
-            onClick = onFinish,
-        )
+        if (coreInstalled) {
+            PrimaryPillButton(
+                text = "Start chatting",
+                icon = Icons.Rounded.AutoAwesome,
+                onClick = onFinish,
+            )
+        } else {
+            Text("Install Kino Core first to finish onboarding.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+private fun LibrariesAction(
+    libraries: List<LibraryState>,
+    busy: String?,
+    progress: Float,
+    error: String?,
+    onInstall: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    val core = libraries.firstOrNull { it.library.id == "kino-core" }
+    val installed = core?.installed == true
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (installed) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
+                Spacer(Modifier.width(7.dp))
+                Text("Kino Core installed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+        } else {
+            Text(
+                "Kino Core is required for chat, search, and file support. Download it now — this step cannot be skipped.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        if (core != null) {
+            Text(
+                "${core.library.name} ${core.library.version}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (busy == "kino-core") {
+                androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(0.7f))
+            }
+            if (!installed) {
+                PrimaryPillButton(
+                    text = if (busy == "kino-core") "Installing…" else "Download Kino Core",
+                    icon = Icons.Rounded.Download,
+                    onClick = { if (busy == null) onInstall("kino-core") },
+                )
+            }
+        } else {
+            Text("Loading library catalog…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onRefresh) { Text("Refresh") }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
+        if (installed) {
+            PrimaryPillButton(
+                text = "Continue",
+                icon = Icons.Rounded.ArrowForward,
+                onClick = onContinue,
+            )
+        }
     }
 }
 
@@ -414,13 +526,13 @@ private fun OnboardingBottomBar(
                 )
             }
         }
-        if (page < FINISH_PAGE) {
+        if (page < FINISH_PAGE && page != LIBRARIES_PAGE) {
             CircularNextButton(
                 onClick = onNext,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
-        if (page < CONNECT_PAGE) {
+        if (page < LIBRARIES_PAGE) {
             TextButton(onClick = onSkip, modifier = Modifier.align(Alignment.CenterStart)) { Text("Skip") }
         }
     }
@@ -585,6 +697,7 @@ private fun OnboardingArt(art: OnboardingArt, dark: Boolean, scale: Float, modif
         OnboardingArt.Welcome -> WelcomeArt(modifier, scale)
         OnboardingArt.Chat -> ChatArt(modifier, scale)
         OnboardingArt.Tools -> ToolsArt(modifier, scale)
+        OnboardingArt.Libraries -> LibrariesArt(modifier, scale)
         OnboardingArt.Private -> PrivateArt(modifier, scale)
         OnboardingArt.Connect -> ConnectArt(modifier, scale)
         OnboardingArt.Appearance -> AppearanceArt(dark, modifier, scale)
@@ -807,6 +920,61 @@ private fun ToolsArt(modifier: Modifier = Modifier, scale: Float = 1f) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = primary, modifier = Modifier.size((32f * scale).dp))
+        }
+    }
+}
+
+@Composable
+private fun LibrariesArt(modifier: Modifier = Modifier, scale: Float = 1f) {
+    val primary = MaterialTheme.colorScheme.primary
+    val transition = rememberInfiniteTransition(label = "librariesArt")
+    val pulse by transition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(1900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "librariesPulse",
+    )
+    val spin by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Restart),
+        label = "librariesSpin",
+    )
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            drawCircle(color = primary.copy(alpha = 0.1f), radius = size.minDimension * 0.46f, center = center)
+            drawCircle(
+                color = primary.copy(alpha = 0.22f),
+                radius = size.minDimension * 0.46f,
+                center = center,
+                style = Stroke(width = 1.5.dp.toPx()),
+            )
+        }
+        repeat(3) { index ->
+            val angle = Math.toRadians((spin + index * 120f).toDouble())
+            val radius = 96f * scale
+            Box(
+                Modifier
+                    .offset(x = (radius * cos(angle)).dp, y = (radius * sin(angle)).dp)
+                    .size((26f * scale).dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.5.dp, artAccent(index).copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Download, contentDescription = null, tint = artAccent(index), modifier = Modifier.size((14f * scale).dp))
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxSize(0.34f * pulse)
+                .clip(RoundedCornerShape(18.dp))
+                .background(primary.copy(alpha = 0.14f))
+                .border(2.dp, primary, RoundedCornerShape(18.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Storage, contentDescription = null, tint = primary, modifier = Modifier.fillMaxSize(0.46f))
         }
     }
 }

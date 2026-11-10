@@ -141,8 +141,14 @@ fun KinoApp(model: KinoViewModel) {
             OnboardingScreen(
                 dark = dark,
                 connected = deepSeekConnected,
+                libraries = libraryStates,
+                libraryBusy = libraryBusy,
+                libraryProgress = libraryProgress,
+                libraryError = libraryError,
                 onThemeChange = model::setDarkTheme,
                 onConnect = { onboardingLogin = true },
+                onInstallLibrary = model::installLibrary,
+                onRefreshLibraries = model::refreshLibraries,
                 onFinish = {
                     model.completeOnboarding()
                     model.newChat()
@@ -277,8 +283,6 @@ fun KinoApp(model: KinoViewModel) {
                     onQuery = { query = it },
                     onOpen = model::openChat,
                     onDelete = { deleteTarget = it },
-                    onRefresh = model::refresh,
-                    onSettings = { tab = MainTab.Settings; settingsPage = null },
                 )
             }
         }
