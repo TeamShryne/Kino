@@ -98,7 +98,7 @@ class OfficeDocumentRenderer(
             val p = doc.createParagraph()
             p.alignment = ParagraphAlignment.LEFT
             val r = p.createRun()
-            r.text = title
+            r.setText(title)
             r.isBold = true
             r.fontSize = baseSize + 6
             r.fontFamily = baseFont
@@ -125,7 +125,7 @@ class OfficeDocumentRenderer(
                     val p = doc.createParagraph()
                     p.style = "Heading$level"
                     val r = p.createRun()
-                    r.text = b.optString("text")
+                    r.setText(b.optString("text"))
                     r.isBold = true
                     r.fontFamily = baseFont
                     r.fontSize = baseSize + (5 - level)
@@ -133,7 +133,7 @@ class OfficeDocumentRenderer(
                 "paragraph" -> {
                     val p = doc.createParagraph()
                     val r = p.createRun()
-                    r.text = b.optString("text")
+                    r.setText(b.optString("text"))
                     r.fontFamily = baseFont
                     r.fontSize = baseSize
                     if (b.optBoolean("bold")) r.isBold = true
@@ -145,7 +145,7 @@ class OfficeDocumentRenderer(
                     val p = doc.createParagraph()
                     p.numID = null
                     val r = p.createRun()
-                    r.text = "• " + b.optString("text")
+                    r.setText("• " + b.optString("text"))
                     r.fontFamily = baseFont
                     r.fontSize = baseSize
                 }
@@ -159,7 +159,7 @@ class OfficeDocumentRenderer(
                         val cells = table.getRow(ri).tableCells
                         for (ci in 0 until row.length()) {
                             if (ci >= cells.size) break
-                            cells[ci].text = row.opt(ci)?.toString().orEmpty()
+                            cells[ci].setText(row.opt(ci)?.toString().orEmpty())
                         }
                     }
                 }
@@ -179,19 +179,19 @@ class OfficeDocumentRenderer(
             when {
                 trimmed.startsWith("# ") -> {
                     val p = doc.createParagraph(); p.style = "Heading1"
-                    val r = p.createRun(); r.text = trimmed.removePrefix("# ").trim(); r.isBold = true; r.fontSize = baseSize + 6; r.fontFamily = baseFont
+                    val r = p.createRun(); r.setText(trimmed.removePrefix("# ").trim()); r.isBold = true; r.fontSize = baseSize + 6; r.fontFamily = baseFont
                 }
                 trimmed.startsWith("## ") -> {
                     val p = doc.createParagraph(); p.style = "Heading2"
-                    val r = p.createRun(); r.text = trimmed.removePrefix("## ").trim(); r.isBold = true; r.fontSize = baseSize + 4; r.fontFamily = baseFont
+                    val r = p.createRun(); r.setText(trimmed.removePrefix("## ").trim()); r.isBold = true; r.fontSize = baseSize + 4; r.fontFamily = baseFont
                 }
                 trimmed.startsWith("### ") -> {
                     val p = doc.createParagraph(); p.style = "Heading3"
-                    val r = p.createRun(); r.text = trimmed.removePrefix("### ").trim(); r.isBold = true; r.fontSize = baseSize + 2; r.fontFamily = baseFont
+                    val r = p.createRun(); r.setText(trimmed.removePrefix("### ").trim()); r.isBold = true; r.fontSize = baseSize + 2; r.fontFamily = baseFont
                 }
                 trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
                     val p = doc.createParagraph()
-                    val r = p.createRun(); r.text = "• " + trimmed.drop(2).trim(); r.fontFamily = baseFont; r.fontSize = baseSize
+                    val r = p.createRun(); r.setText("• " + trimmed.drop(2).trim()); r.fontFamily = baseFont; r.fontSize = baseSize
                 }
                 trimmed.startsWith("|") && i + 1 < lines.size && lines[i + 1].trim().startsWith("|") -> {
                     // table
@@ -209,7 +209,7 @@ class OfficeDocumentRenderer(
                             val cells = table.getRow(ri).tableCells
                             val parts = rl.trim('|').split("|")
                             parts.forEachIndexed { ci, value ->
-                                if (ci < cells.size) cells[ci].text = value.trim()
+                                if (ci < cells.size) cells[ci].setText(value.trim())
                             }
                         }
                     }
@@ -217,7 +217,7 @@ class OfficeDocumentRenderer(
                 }
                 else -> {
                     val p = doc.createParagraph()
-                    val r = p.createRun(); r.text = trimmed; r.fontFamily = baseFont; r.fontSize = baseSize
+                    val r = p.createRun(); r.setText(trimmed); r.fontFamily = baseFont; r.fontSize = baseSize
                 }
             }
             count++
@@ -233,13 +233,13 @@ class OfficeDocumentRenderer(
                 "append_paragraph" -> {
                     val p = doc.createParagraph()
                     val r = p.createRun()
-                    r.text = op.optString("text")
+                    r.setText(op.optString("text"))
                 }
                 "append_heading" -> {
                     val p = doc.createParagraph()
                     p.style = "Heading${op.optInt("level", 1).coerceIn(1, 4)}"
                     val r = p.createRun()
-                    r.text = op.optString("text")
+                    r.setText(op.optString("text"))
                     r.isBold = true
                 }
                 "replace_text" -> {
@@ -262,7 +262,7 @@ class OfficeDocumentRenderer(
                         val row = rows.optJSONArray(ri) ?: continue
                         val cells = table.getRow(ri).tableCells
                         for (ci in 0 until row.length()) {
-                            if (ci < cells.size) cells[ci].text = row.opt(ci)?.toString().orEmpty()
+                            if (ci < cells.size) cells[ci].setText(row.opt(ci)?.toString().orEmpty())
                         }
                     }
                 }
@@ -377,7 +377,7 @@ class OfficeDocumentRenderer(
         if (slides == null || slides.length() == 0) {
             val s = ppt.createSlide()
             val t = s.createTextBox()
-            t.text = title
+            t.setText(title)
         } else {
             require(slides.length() <= limits.maxSlides) { "Too many slides." }
             for (si in 0 until slides.length()) {
@@ -388,7 +388,7 @@ class OfficeDocumentRenderer(
                 val titleShape = slide.createTextBox()
                 val tp = titleShape.addNewTextParagraph()
                 val tr = tp.addNewTextRun()
-                tr.text = titleText
+                tr.setText(titleText)
                 tr.fontSize = 28.0
                 tr.isBold = true
                 // Bullets
@@ -399,7 +399,7 @@ class OfficeDocumentRenderer(
                         val bp = body.addNewTextParagraph()
                         bp.bulletCharacter = "•"
                         val br = bp.addNewTextRun()
-                        br.text = bullets.optString(bi)
+                        br.setText(bullets.optString(bi))
                         br.fontSize = 18.0
                     }
                 }
@@ -408,7 +408,7 @@ class OfficeDocumentRenderer(
                     val ns = slide.notes
                     ns?.let {
                         val np = it.createTextBox()?.addNewTextParagraph()
-                        np?.addNewTextRun()?.text = notes
+                        np?.addNewTextRun()?.setText(notes)
                     }
                 }
             }
@@ -429,7 +429,7 @@ class OfficeDocumentRenderer(
                         val ts = slide.createTextBox()
                         val tp = ts.addNewTextParagraph()
                         val tr = tp.addNewTextRun()
-                        tr.text = title
+                        tr.setText(title)
                         tr.fontSize = 28.0
                         tr.isBold = true
                     }
@@ -439,7 +439,7 @@ class OfficeDocumentRenderer(
                         for (bi in 0 until bullets.length()) {
                             val bp = body.addNewTextParagraph()
                             bp.bulletCharacter = "•"
-                            bp.addNewTextRun().text = bullets.optString(bi)
+                            bp.addNewTextRun().setText(bullets.optString(bi))
                         }
                     }
                 }
@@ -450,7 +450,7 @@ class OfficeDocumentRenderer(
                     val body = slide.createTextBox()
                     val bp = body.addNewTextParagraph()
                     bp.bulletCharacter = "•"
-                    bp.addNewTextRun().text = op.optString("text")
+                    bp.addNewTextRun().setText(op.optString("text"))
                 }
                 "set_title" -> {
                     val index = op.optInt("slide", 0)
@@ -458,7 +458,7 @@ class OfficeDocumentRenderer(
                     // best-effort: update first text box
                     val slide = ppt.slides[index]
                     val first = slide.shapes.filterIsInstance<org.apache.poi.xslf.usermodel.XSLFTextBox>().firstOrNull()
-                    first?.textParagraphs?.firstOrNull()?.textRuns?.firstOrNull()?.text = op.optString("title")
+                    first?.textParagraphs?.firstOrNull()?.textRuns?.firstOrNull()?.setText(op.optString("title"))
                 }
                 "delete_slide" -> {
                     val index = op.optInt("slide", -1)
