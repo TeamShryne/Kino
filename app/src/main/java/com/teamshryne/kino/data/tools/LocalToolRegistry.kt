@@ -37,6 +37,7 @@ class LocalToolRegistry(
     private val messages: suspend (String) -> List<KinoMessage>,
     private val renderPdf: suspend (String, List<String>, Boolean) -> String,
     private val browse: suspend (JSONObject) -> String,
+    private val renderOffice: suspend (JSONObject) -> String = { error("Office rendering is not available.") },
     private val pdfLimits: () -> PdfLimits = { PdfLimits() },
 ) {
     suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
@@ -64,6 +65,17 @@ class LocalToolRegistry(
                 stringArgument("html", false)
                 if (arguments.has("pages")) require(arguments.optJSONArray("pages") != null) { "pages must be an array of HTML strings." }
                 require(arguments.has("pages") != arguments.has("html")) { "Provide exactly one of pages or html for html_to_pdf." }
+            }
+            "office_document" -> {
+                stringArgument("format", true)
+                require(arguments.getString("format") in setOf("docx", "xlsx", "pptx", "xls")) { "format must be docx, xlsx, pptx, or xls." }
+                val operation = arguments.optString("operation", "create")
+                require(operation in setOf("create", "edit")) { "operation must be create or edit." }
+                if (operation == "edit") stringArgument("filename", true)
+                if (arguments.has("title")) stringArgument("title", false)
+                if (arguments.has("output_filename")) stringArgument("output_filename", false)
+                if (arguments.has("markdown")) stringArgument("markdown", false)
+                if (arguments.has("csv")) stringArgument("csv", false)
             }
             "browser" -> {
                 stringArgument("action", true)
@@ -129,6 +141,12 @@ class LocalToolRegistry(
             LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).put("pages", pages.size).toString())
         }
         "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
+        "office_document" -> {
+            val format = arguments.getString("format")
+            val operation = arguments.optString("operation", "create")
+            val filename = renderOffice(arguments)
+            LocalToolResult(name, if (operation == "edit") "Edited Office document" else "Created Office document", JSONObject().put("filename", filename).put("format", format).put("operation", operation).toString())
+        }
         else -> error("Unknown tool: $name")
         }
         return result
@@ -189,6 +207,7 @@ class LocalToolRegistry(
             ToolSpec("date_time", "date_time(timezone?: string): current time in an IANA timezone; defaults to device timezone", setOf("timezone")),
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
             ToolSpec("html_to_pdf", "html_to_pdf(title?: string, pages?: [string], html?: string): render responsive HTML as a shareable PDF with Android WebView; JavaScript runs before printing. Prefer pages: one HTML fragment per A4 page (e.g. <style>…</style><main>…</main>, no <html> wrapper needed — Kino wraps each page), typically 1–20 pages (user limits in Settings may allow more). Each page is EXACTLY 794 CSS px wide × 1123 CSS px tall (A4) and Kino adds 14mm/12mm padding: design inside ~700px usable width and ~980px usable height per page. No fixed widths, min-widths, or flex/grid rows wider than ~700px, no vw widths beyond 100vw, no horizontal scrolling; use width:100%, box-sizing:border-box, flexible wrapping grid/flex, relative units, and keep text in normal wrapping flow. Images max-width:100% (height auto), tables width:100% with small padding and wrapped cells. Kino auto-shrinks the page if anything overflows, so stay near one page per fragment. Inline <script> and data-URI images work; set window.__kinoPdfReady=true after async rendering. Legacy html (single flowing document) is also accepted.", setOf("title", "html", "pages")),
+            ToolSpec("office_document", "office_document(format: docx|xlsx|pptx|xls, operation?: create|edit, title?: string, filename?: string for edit, output_filename?: string, markdown?: string for docx, blocks?: [{type: heading|paragraph|bullet|table|page_break, text?, level?, bold?, italic?, color?, rows?}] for docx, sheets?: [{name, rows?: [[value]], csv?: string, column_widths?: [number], freeze_panes?: \"A2\", formats?: {\"A1\":{\"bold\":true,\"fill\":\"#D9E2F3\",\"number_format\":\"#,##0\"}}}] for xlsx/xls, slides?: [{title, bullets?: [string], notes?, layout?}] for pptx, operations?: [{type, ...}] for edit): create or edit real Word, Excel, or PowerPoint files. Prefer markdown for Word, csv/rows for Excel, and slide outlines for PowerPoint. Kino renders the Office file and returns a filename; use Open/Share in chat.", setOf("format", "operation", "title", "filename", "output_filename", "markdown", "blocks", "sheets", "slides", "operations", "style")),
             ToolSpec("browser", "browser(action: open|read|click|type|scroll|wait_for|press_key|hover|select_option|query|element_state|links|tables|refresh|forward|back|tabs|images|close_tab|viewport|evaluate, url?, element_id?, selector?, frame_selector?, text?, state?, key?, value?, mode?, script?, query?, direction?, pages?, offset?, limit?, timeout_ms?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled. open/read prioritize named form fields and nearby buttons, including placeholders. type supports text inputs, textareas, and contenteditable fields, then returns updated controls. Displayed IDs such as a17 go in element_id, never in selector. wait_for can target element_id, real CSS selector/query, or text, with states visible/appear, hidden/disappear, attached, or detached. For example, wait_for(element_id=\"a17\", state=\"detached\") waits for that control to disappear. query supports CSS/XPath and same-origin iframe selection; links and tables return paged structured data; evaluate only accepts a safe editable-field assignment", setOf("action", "url", "element_id", "selector", "frame_selector", "text", "query", "direction", "pages", "tab_id", "new_tab", "state", "timeout_ms", "key", "value", "mode", "script", "offset", "limit")),
         )
 
@@ -199,6 +218,7 @@ class LocalToolRegistry(
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
             "html_to_pdf" -> "Created PDF"
+            "office_document" -> "Created Office document"
             "browser" -> "Browsed website"
             else -> "Used tool"
         }
@@ -209,6 +229,7 @@ class LocalToolRegistry(
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"
             "html_to_pdf" -> "Working on PDF" to "Preparing ${arguments.optString("title").ifBlank { "document" }.take(100)}"
+            "office_document" -> "Working on Office file" to "Preparing ${arguments.optString("title").ifBlank { "document" }.take(100)} (${arguments.optString("format")})"
             "browser" -> "Browsing the web" to when (arguments.optString("action")) {
                 "open" -> "Opening ${arguments.optString("url").take(100)}"
                 "click" -> "Following page control ${arguments.optString("element_id").take(16)}"
