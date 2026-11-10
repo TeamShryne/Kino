@@ -50,7 +50,7 @@ class RuntimeLibraries(private val context: Context) {
 
     fun state(library: RuntimeLibrary): LibraryState {
         val installedVersion = prefs.getString("${library.id}.version", null)
-        val artifact = library.artifacts.firstOrNull { it.abi == abi }
+        val artifact = library.artifacts.firstOrNull { it.abi == abi } ?: library.artifacts.firstOrNull { it.abi == "universal" }
         val folder = artifact?.let { destination(library, it) }
         val nativeOk = library.nativeLibrary.isBlank() || (folder != null && File(folder, library.nativeLibrary).isFile)
         val classesOk = library.classesFile == null || (folder != null && File(folder, library.classesFile).isFile)
