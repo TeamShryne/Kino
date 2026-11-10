@@ -18,8 +18,7 @@ import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
 import com.teamshryne.kino.data.tools.HtmlPdfRenderer
-import com.teamshryne.kino.data.tools.OfficeDocumentRenderer
-import com.teamshryne.kino.data.tools.OfficeLimits
+import com.teamshryne.kino.data.tools.KinoOfficeClient
 import com.teamshryne.kino.data.tools.LocalToolRegistry
 import com.teamshryne.kino.data.tools.ToolCallProtocol
 import com.teamshryne.kino.domain.model.ChatProviderState
@@ -81,7 +80,7 @@ class KinoViewModel(
         maxPageChars = _pdfMaxPageKb.value * 1024,
         maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
     )
-    private val officeRenderer = OfficeDocumentRenderer(application, OfficeLimits())
+    private val officeClient = KinoOfficeClient(application)
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
@@ -90,7 +89,7 @@ class KinoViewModel(
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
         },
-        renderOffice = { arguments -> officeRenderer.render(arguments) },
+        renderOffice = { arguments -> officeClient.render(arguments) },
     )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())
