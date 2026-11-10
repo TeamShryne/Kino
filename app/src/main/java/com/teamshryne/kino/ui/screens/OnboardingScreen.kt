@@ -698,7 +698,6 @@ private fun OnboardingArt(art: OnboardingArt, dark: Boolean, scale: Float, modif
         OnboardingArt.Chat -> ChatArt(modifier, scale)
         OnboardingArt.Tools -> ToolsArt(modifier, scale)
         OnboardingArt.Libraries -> LibrariesArt(modifier, scale)
-        OnboardingArt.Private -> PrivateArt(modifier, scale)
         OnboardingArt.Connect -> ConnectArt(modifier, scale)
         OnboardingArt.Appearance -> AppearanceArt(dark, modifier, scale)
         OnboardingArt.Finish -> FinishArt(modifier, scale)

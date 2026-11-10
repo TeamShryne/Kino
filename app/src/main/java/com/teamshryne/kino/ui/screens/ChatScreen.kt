@@ -558,7 +558,7 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
     val tool = message.tool ?: return
     val pdf = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
     val filename = pdf?.optString("filename").orEmpty()
-    val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\.pdf")) }
+    val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
     val title = pdf?.optString("title").orEmpty().ifBlank { "PDF ready" }
     Surface(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),

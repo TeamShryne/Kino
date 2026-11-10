@@ -494,11 +494,11 @@ class KinoViewModel(
             _providerError.value = "Connect DeepSeek in Settings before sending a message."
             return@launch
         }
-        val active = _activeChat.value
+        val currentActive = _activeChat.value
         val chatId = when {
-            active == null -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
-            active.startsWith("draft-") -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
-            else -> active
+            currentActive == null -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            currentActive.startsWith("draft-") -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            else -> currentActive
         }
         val requestedModelId = _selectedModel.value
         val requestedThinking = _thinkingEnabled.value
