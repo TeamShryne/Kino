@@ -71,6 +71,8 @@ class KinoViewModel(
     val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
     private val _firstRunCorePrompt = MutableStateFlow(!preferences.getBoolean("core_prompt_seen", false))
     val firstRunCorePrompt: StateFlow<Boolean> = _firstRunCorePrompt.asStateFlow()
+    private val _onboardingComplete = MutableStateFlow(preferences.getBoolean("onboarding_complete", false))
+    val onboardingComplete: StateFlow<Boolean> = _onboardingComplete.asStateFlow()
     private fun currentPdfLimits() = com.teamshryne.kino.data.tools.PdfLimits(
         maxPages = _pdfMaxPages.value,
         maxHtmlChars = _pdfMaxHtmlKb.value * 1024,
@@ -216,6 +218,11 @@ class KinoViewModel(
     }
 
     fun dismissCorePrompt() { preferences.edit().putBoolean("core_prompt_seen", true).apply(); _firstRunCorePrompt.value = false }
+
+    fun completeOnboarding() {
+        preferences.edit().putBoolean("onboarding_complete", true).apply()
+        _onboardingComplete.value = true
+    }
 
     fun openBrowser() { _browserOpen.value = true }
     fun toggleBrowser() { if (_browserOpen.value) closeBrowser() else openBrowser() }

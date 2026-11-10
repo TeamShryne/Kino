@@ -5,6 +5,7 @@ Kino is an Android chat app for everyday conversations with a small amount of ag
 ## Current foundation
 
 - Native Kotlin and Jetpack Compose UI
+- First-run onboarding with animated illustrations, theme selection, and DeepSeek sign-in
 - Chats home with search, create, open, and delete actions
 - SQLite-backed conversation and ordered message history
 - Tool activity stored in the message timeline and shown in expandable cards

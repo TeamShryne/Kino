@@ -30,6 +30,7 @@ import com.teamshryne.kino.ui.screens.ChatScreen
 import com.teamshryne.kino.ui.screens.ChatsScreen
 import com.teamshryne.kino.ui.screens.SettingsScreen
 import com.teamshryne.kino.ui.screens.DeepSeekLoginScreen
+import com.teamshryne.kino.ui.screens.OnboardingScreen
 import com.teamshryne.kino.ui.components.BrowserSessionPane
 
 private enum class MainTab(val title: String) { Chats("Chats"), Settings("Settings") }
@@ -64,6 +65,7 @@ fun KinoApp(model: KinoViewModel) {
     val libraryProgress by model.libraryProgress.collectAsState()
     val libraryError by model.libraryError.collectAsState()
     val firstRunCorePrompt by model.firstRunCorePrompt.collectAsState()
+    val onboardingComplete by model.onboardingComplete.collectAsState()
     val browserOpen by model.browserOpen.collectAsState()
     val browserState by model.browserState.collectAsState()
     val browserProgress = streamingTools.lastOrNull { it.tool?.name == "thinking" }?.tool?.detail.orEmpty()
@@ -71,11 +73,14 @@ fun KinoApp(model: KinoViewModel) {
     var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var deleteTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var onboardingLogin by rememberSaveable { mutableStateOf(false) }
     val selectedChat = chats.firstOrNull { it.id == activeChat }
     // Keep in-app destinations above the Activity back action. Settings detail ->
-    // settings list -> chats; an open conversation -> chats.
-    BackHandler(enabled = browserOpen || activeChat != null || tab == MainTab.Settings) {
+    // settings list -> chats; an open conversation -> chats; the onboarding
+    // sign-in step -> back to onboarding.
+    BackHandler(enabled = onboardingLogin || browserOpen || activeChat != null || tab == MainTab.Settings) {
         when {
+            onboardingLogin -> onboardingLogin = false
             browserOpen -> model.closeBrowser()
             activeChat != null -> model.closeChat()
             settingsPage == "deepseek-login" -> settingsPage = "provider"
@@ -97,7 +102,7 @@ fun KinoApp(model: KinoViewModel) {
     }
 
     val kinoCoreState = libraryStates.firstOrNull { it.library.id == "kino-core" }
-    if (firstRunCorePrompt) AlertDialog(
+    if (onboardingComplete && firstRunCorePrompt) AlertDialog(
         onDismissRequest = model::dismissCorePrompt,
         title = { Text(if (kinoCoreState?.updateAvailable == true) "Update Kino Core" else "Install Kino Core") },
         text = {
@@ -114,6 +119,27 @@ fun KinoApp(model: KinoViewModel) {
         }) } },
         dismissButton = { TextButton(onClick = model::dismissCorePrompt) { Text("Later") } },
     )
+    if (!onboardingComplete) {
+        if (onboardingLogin) {
+            DeepSeekLoginScreen(
+                connected = deepSeekConnected,
+                onCredentials = model::saveDeepSeekCredentials,
+                onBack = { onboardingLogin = false },
+            )
+        } else {
+            OnboardingScreen(
+                dark = dark,
+                connected = deepSeekConnected,
+                onThemeChange = model::setDarkTheme,
+                onConnect = { onboardingLogin = true },
+                onFinish = {
+                    model.completeOnboarding()
+                    model.newChat()
+                },
+            )
+        }
+        return
+    }
     if (activeChat != null) {
         Box(Modifier.fillMaxSize()) {
             BrowserSessionPane(
