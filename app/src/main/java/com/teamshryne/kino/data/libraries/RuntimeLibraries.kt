@@ -64,7 +64,10 @@ class RuntimeLibraries(private val context: Context) {
         require(library.format == "gomobile-dex-runtime-zip-v1") { "Unsupported runtime package format." }
         require(library.artifacts.map { it.abi }.distinct().size == library.artifacts.size) { "Duplicate ABI packages in catalog." }
         val artifact = state(library).artifact ?: error("${library.name} is not available for this device (${abi.ifBlank { "unknown ABI" }}).")
-        require(artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/")) { "Library URL is not trusted." }
+        require(
+            artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/") ||
+                artifact.url.startsWith("https://github.com/TeamShryne/kino-office/releases/")
+        ) { "Library URL is not trusted." }
         val folder = destination(library, artifact).apply { mkdirs() }
         val archive = File(folder, "${artifact.fileName}.part")
         try {
