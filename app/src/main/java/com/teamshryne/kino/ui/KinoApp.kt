@@ -3,6 +3,7 @@ package com.teamshryne.kino.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -18,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,7 +42,13 @@ fun KinoApp(model: KinoViewModel) {
     val chats by model.chats.collectAsState()
     val activeChat by model.activeChat.collectAsState()
     val messages by model.messages.collectAsState()
-    val dark by model.darkTheme.collectAsState()
+    val themeMode by model.themeMode.collectAsState()
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> systemDark
+    }
     val showToolDetails by model.showToolDetails.collectAsState()
     val tableCellMinWidth by model.tableCellMinWidth.collectAsState()
     val pdfMaxPages by model.pdfMaxPages.collectAsState()
@@ -121,11 +129,14 @@ fun KinoApp(model: KinoViewModel) {
     )
     if (!onboardingComplete) {
         if (onboardingLogin) {
-            DeepSeekLoginScreen(
-                connected = deepSeekConnected,
-                onCredentials = model::saveDeepSeekCredentials,
-                onBack = { onboardingLogin = false },
-            )
+            Box(Modifier.fillMaxSize().systemBarsPadding()) {
+                DeepSeekLoginScreen(
+                    dark = dark,
+                    connected = deepSeekConnected,
+                    onCredentials = model::saveDeepSeekCredentials,
+                    onBack = { onboardingLogin = false },
+                )
+            }
         } else {
             OnboardingScreen(
                 dark = dark,
@@ -211,17 +222,20 @@ fun KinoApp(model: KinoViewModel) {
         ) { insets ->
             Box(Modifier.fillMaxSize().padding(insets)) {
                 if (tab == MainTab.Settings && settingsPage == "deepseek-login") DeepSeekLoginScreen(
+                    dark = dark,
                     connected = deepSeekConnected,
                     onCredentials = model::saveDeepSeekCredentials,
                     onBack = { settingsPage = "provider" },
                 ) else if (tab == MainTab.Settings) SettingsScreen(
                     page = settingsPage,
                     dark = dark,
+                    themeMode = themeMode,
                     showToolDetails = showToolDetails,
                     tableCellMinWidth = tableCellMinWidth,
                     onBack = { settingsPage = null },
                     onOpen = { settingsPage = it },
                     onThemeChange = model::setDarkTheme,
+                    onThemeModeChange = model::setThemeMode,
                     onToolDetailChange = model::setShowToolDetails,
                     onTableCellMinWidthChange = model::setTableCellMinWidth,
                     pdfMaxPages = pdfMaxPages,

@@ -72,12 +72,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -261,6 +259,7 @@ private fun OnboardingPageContent(
                 Text(
                     spec.title,
                     style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     letterSpacing = (-0.3).sp,
@@ -605,19 +604,19 @@ private fun OnboardingBackdrop(modifier: Modifier = Modifier) {
     )
     Canvas(modifier) {
         val blobs = listOf(
-            Triple(0.10f, 0.14f, 0.5f),
-            Triple(0.88f, 0.22f, 0.38f),
-            Triple(0.5f, 0.92f, 0.46f),
+            Triple(0.15f, 0.18f, 0.42f),
+            Triple(0.85f, 0.25f, 0.34f),
+            Triple(0.5f, 0.88f, 0.40f),
         )
         blobs.forEachIndexed { index, (x, y, radiusFraction) ->
             val angle = Math.toRadians((drift + index * 120f).toDouble())
-            val radius = minOf(size.width, size.height) * radiusFraction * 0.5f
+            val radius = minOf(size.width, size.height) * radiusFraction * 0.45f
             drawCircle(
-                color = if (index % 2 == 0) primary.copy(alpha = 0.05f) else artAccent(index).copy(alpha = 0.05f),
+                color = if (index % 2 == 0) primary.copy(alpha = 0.04f) else artAccent(index).copy(alpha = 0.04f),
                 radius = radius,
                 center = Offset(
-                    x = size.width * x + (radius * 0.12f * cos(angle)).toFloat(),
-                    y = size.height * y + (radius * 0.12f * sin(angle)).toFloat(),
+                    x = size.width * x + (radius * 0.08f * cos(angle)).toFloat(),
+                    y = size.height * y + (radius * 0.08f * sin(angle)).toFloat(),
                 ),
             )
         }
@@ -628,12 +627,6 @@ private fun OnboardingBackdrop(modifier: Modifier = Modifier) {
 private fun WelcomeArt(modifier: Modifier = Modifier, scale: Float = 1f) {
     val primary = MaterialTheme.colorScheme.primary
     val transition = rememberInfiniteTransition(label = "welcomeArt")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(3400, easing = LinearEasing), RepeatMode.Restart),
-        label = "welcomeRipple",
-    )
     val orbit by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -650,25 +643,11 @@ private fun WelcomeArt(modifier: Modifier = Modifier, scale: Float = 1f) {
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height / 2f)
             val baseRadius = size.minDimension / 2f
-            repeat(3) { ring ->
-                val progress = (ripple + ring / 3f) % 1f
-                drawCircle(
-                    color = primary.copy(alpha = (1f - progress) * 0.28f),
-                    radius = baseRadius * 0.92f * progress,
-                    center = center,
-                )
-            }
             drawCircle(
                 color = primary.copy(alpha = 0.22f),
                 radius = baseRadius * 0.66f,
                 center = center,
                 style = Stroke(width = 2.dp.toPx()),
-            )
-            drawCircle(
-                color = primary.copy(alpha = 0.12f),
-                radius = baseRadius * 0.82f,
-                center = center,
-                style = Stroke(width = 1.5.dp.toPx()),
             )
             repeat(5) { index ->
                 val angle = Math.toRadians((orbit + index * 72f).toDouble())
@@ -779,11 +758,11 @@ private fun ChatArt(modifier: Modifier = Modifier, scale: Float = 1f) {
 private fun ToolsArt(modifier: Modifier = Modifier, scale: Float = 1f) {
     val primary = MaterialTheme.colorScheme.primary
     val transition = rememberInfiniteTransition(label = "toolsArt")
-    val ringAngle by transition.animateFloat(
+    val revolveAngle by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Restart),
-        label = "toolsRing",
+        animationSpec = infiniteRepeatable(tween(18000, easing = LinearEasing), RepeatMode.Restart),
+        label = "toolsRevolve",
     )
     val pulse by transition.animateFloat(
         initialValue = 0f,
@@ -799,17 +778,8 @@ private fun ToolsArt(modifier: Modifier = Modifier, scale: Float = 1f) {
         Icons.Rounded.ChatBubbleOutline,
     )
     Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize().rotate(ringAngle)) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            drawCircle(
-                color = primary.copy(alpha = 0.3f),
-                radius = size.minDimension * 0.44f,
-                center = center,
-                style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 12f))),
-            )
-        }
         toolIcons.forEachIndexed { index, icon ->
-            val angle = Math.toRadians((index * 72f - 90f).toDouble())
+            val angle = Math.toRadians((index * 72f - 90f + revolveAngle).toDouble())
             val wave = (pulse + index / 5f) % 1f
             val iconScale = 0.88f + 0.14f * (1f - abs(2f * wave - 1f))
             Box(
@@ -854,7 +824,7 @@ private fun PrivateArt(modifier: Modifier = Modifier, scale: Float = 1f) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height / 2f)
-            repeat(2) { index ->
+            repeat(1) { index ->
                 val progress = (pulse + index * 0.5f) % 1f
                 drawCircle(
                     color = primary.copy(alpha = (1f - progress) * 0.2f),
@@ -1038,7 +1008,7 @@ private fun FinishArt(modifier: Modifier = Modifier, scale: Float = 1f) {
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height / 2f)
             val maxRadius = size.minDimension * 0.48f
-            repeat(10) { index ->
+            repeat(8) { index ->
                 val angle = Math.toRadians((index * 36f).toDouble())
                 val distance = maxRadius * burst
                 drawCircle(

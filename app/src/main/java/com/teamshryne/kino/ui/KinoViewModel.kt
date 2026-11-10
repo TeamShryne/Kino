@@ -95,6 +95,8 @@ class KinoViewModel(
     val activeChat: StateFlow<String?> = _activeChat.asStateFlow()
     private val _messages = MutableStateFlow<List<KinoMessage>>(emptyList())
     val messages: StateFlow<List<KinoMessage>> = _messages.asStateFlow()
+    private val _themeMode = MutableStateFlow(preferences.getString("theme_mode", null) ?: if (preferences.getBoolean("dark", false)) "dark" else "light")
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
     private val _darkTheme = MutableStateFlow(preferences.getBoolean("dark", false))
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
     private val _showToolDetails = MutableStateFlow(preferences.getBoolean("tool_details", true))
@@ -1140,9 +1142,15 @@ class KinoViewModel(
         if (_activeChat.value == id) closeChat() else _chats.value = conversations.chats()
     }
 
+    fun setThemeMode(mode: String) {
+        val normalized = when (mode) { "dark", "light", "auto" -> mode; else -> "light" }
+        preferences.edit().putString("theme_mode", normalized).putBoolean("dark", normalized == "dark").apply()
+        _themeMode.value = normalized
+        _darkTheme.value = normalized == "dark"
+    }
+
     fun setDarkTheme(enabled: Boolean) {
-        preferences.edit().putBoolean("dark", enabled).apply()
-        _darkTheme.value = enabled
+        setThemeMode(if (enabled) "dark" else "light")
     }
 
     fun setShowToolDetails(enabled: Boolean) {
