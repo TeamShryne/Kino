@@ -540,26 +540,3 @@ class OfficeDocumentRenderer(
         c.cellStyle = style
     }
 }
-```
-
-Need handle `op.opt("value")` method? JSONObject has opt(String). Good.
-
-Now integrate into LocalToolRegistry. Need add tool name "office_document". Add validation. Add renderOffice lambda. But renderer methods suspend. LocalToolRegistry.execute is suspend. We can add constructor param `renderOffice: suspend (format, operation, title, payload, filename, operations, outputFilename) -> String` or simpler `renderOffice: suspend (JSONObject) -> String` that internally parses. Let's add `renderOffice: suspend (JSONObject) -> String` to keep registry simple. Actually renderer needs format/operation etc. We can pass arguments JSONObject to renderOffice lambda and let lambda call renderer. In ViewModel, define:
-```
-renderOffice = { arguments -> renderer.createOrEdit(...) }
-```
-But renderer.create/edit signatures differ. We'll create a wrapper method `render(arguments): String` in renderer:
-```
-suspend fun render(arguments: JSONObject): String {
-  val format = arguments.getString("format")
-  val operation = arguments.optString("operation","create")
-  val title = arguments.optString("title","Kino document")
-  val outputFilename = arguments.optString("output_filename").takeIf { it.isNotBlank() }
-  return if (operation == "edit") {
-     val filename = arguments.getString("filename")
-     val ops = arguments.optJSONArray("operations") ?: JSONArray()
-     edit(format, filename, ops, outputFilename)
-  } else {
-     create(format, title, arguments, outputFilename) // payload is arguments itself? Need extract content.
-  }
-}
