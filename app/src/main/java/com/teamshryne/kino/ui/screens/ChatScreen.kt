@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DesktopWindows
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.AttachFile
@@ -254,6 +255,8 @@ fun ChatScreen(
                             MessageRole.TOOL -> Unit
                         }
                         is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = false) { selectedSource = it }
+                        is TimelineRow.PdfBlock -> PdfActivityBlock(row.message, tableCellMinWidth)
+                        is TimelineRow.OfficeBlock -> OfficeActivityBlock(row.message, tableCellMinWidth)
                     }
                 }
                 liveRows.forEach { row ->
@@ -263,6 +266,12 @@ fun ChatScreen(
                         }
                         is TimelineRow.WorkGroup -> item(key = "live-" + row.key) {
                             ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = isBusy) { selectedSource = it }
+                        }
+                        is TimelineRow.PdfBlock -> item(key = "live-" + row.key) {
+                            PdfActivityBlock(row.message, tableCellMinWidth)
+                        }
+                        is TimelineRow.OfficeBlock -> item(key = "live-" + row.key) {
+                            OfficeActivityBlock(row.message, tableCellMinWidth)
                         }
                     }
                 }
@@ -346,6 +355,12 @@ private sealed interface TimelineRow {
     data class WorkGroup(val items: List<KinoMessage>) : TimelineRow {
         override val key: String = "work-${items.first().id}"
     }
+    data class PdfBlock(val message: KinoMessage) : TimelineRow {
+        override val key: String = "pdf-${message.id}"
+    }
+    data class OfficeBlock(val message: KinoMessage) : TimelineRow {
+        override val key: String = "office-${message.id}"
+    }
 }
 
 private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
@@ -358,8 +373,15 @@ private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
         }
     }
     messages.forEach { message ->
-        if (message.role == MessageRole.TOOL) work += message
-        else {
+        if (message.role == MessageRole.TOOL && message.tool?.name == "html_to_pdf") {
+            flushWork()
+            rows += TimelineRow.PdfBlock(message)
+        } else if (message.role == MessageRole.TOOL && message.tool?.name == "office_document") {
+            flushWork()
+            rows += TimelineRow.OfficeBlock(message)
+        } else if (message.role == MessageRole.TOOL) {
+            work += message
+        } else {
             flushWork()
             rows += TimelineRow.Message(message)
         }
@@ -478,8 +500,6 @@ private fun ToolActivityItem(message: KinoMessage, live: Boolean, tableCellMinWi
                         }
                     } else if (tool.name == "html_to_pdf") {
                         ToolActivityPdfContent(message, tableCellMinWidth)
-                    } else if (tool.name == "office_document") {
-                        ToolActivityOfficeContent(message, tableCellMinWidth)
                     } else if (tool.name == "thinking") {
                         if (tool.detail.isNotBlank()) {
                             MarkdownText(tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
@@ -543,7 +563,75 @@ private fun ToolActivityPdfContent(message: KinoMessage, tableCellMinWidth: Int)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ToolActivityOfficeContent(message: KinoMessage, tableCellMinWidth: Int) {
+private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
+    val context = LocalContext.current
+    val tool = message.tool ?: return
+    val pdf = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
+    val filename = pdf?.optString("filename").orEmpty()
+    val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
+    val status = tool.status
+    val progressTitle = when (status) {
+        "Preparing" -> "Writing PDF"
+        "Working" -> "Generating PDF"
+        else -> "PDF ready"
+    }
+    val title = if (safeFilename != null) pdf?.optString("title").orEmpty().ifBlank { "PDF ready" } else progressTitle
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            }
+            if (safeFilename != null) {
+                val pdfUri = remember(safeFilename) {
+                    val file = File(context.filesDir, "pdf-exports/$safeFilename")
+                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+                }
+                Text("Your PDF is ready to open or share.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            pdfUri?.let { uri ->
+                                val open = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, "application/pdf")
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(open, "Open PDF")) }
+                                    .onFailure { Toast.makeText(context, "No PDF viewer is available.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = pdfUri != null,
+                    ) { Text("Open PDF") }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            pdfUri?.let { uri ->
+                                val share = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino PDF", uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(share, "Share PDF")) }
+                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = pdfUri != null,
+                    ) { Text("Share") }
+                }
+            } else {
+                Text(progressTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OfficeActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
     val context = LocalContext.current
     val tool = message.tool ?: return
     val office = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
@@ -558,43 +646,57 @@ private fun ToolActivityOfficeContent(message: KinoMessage, tableCellMinWidth: I
         else -> "*/*"
     }
     val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.(docx|xlsx|pptx|xls)")) }
-    if (safeFilename != null) {
-        Text(office?.optString("operation").orEmpty().replaceFirstChar { it.uppercase() } + " " + extension.uppercase() + " ready", style = MaterialTheme.typography.bodySmall)
-        val uri = remember(safeFilename) {
-            val file = File(context.filesDir, "office-exports/$safeFilename")
-            if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+    val title = if (safeFilename != null) office?.optString("title").orEmpty().ifBlank { "Office file ready" } else "Preparing Office file"
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            }
+            if (safeFilename != null) {
+                val uri = remember(safeFilename) {
+                    val file = File(context.filesDir, "office-exports/$safeFilename")
+                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+                }
+                Text("Your ${extension.uppercase()} file is ready to open or share.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            uri?.let { u ->
+                                val open = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(u, mime)
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(open, "Open Office file")) }
+                                    .onFailure { Toast.makeText(context, "No viewer is available.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = uri != null,
+                    ) { Text("Open ${extension.uppercase()}") }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            uri?.let { u ->
+                                val share = Intent(Intent.ACTION_SEND).apply {
+                                    type = mime
+                                    putExtra(Intent.EXTRA_STREAM, u)
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(share, "Share Office file")) }
+                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = uri != null,
+                    ) { Text("Share") }
+                }
+            } else {
+                Text("Preparing Office file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.TextButton(
-                onClick = {
-                    uri?.let { u ->
-                        val open = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(u, mime)
-                            clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        runCatching { context.startActivity(Intent.createChooser(open, "Open Office file")) }
-                            .onFailure { Toast.makeText(context, "No viewer is available.", Toast.LENGTH_SHORT).show() }
-                    }
-                }, enabled = uri != null,
-            ) { Text("Open ${extension.uppercase()}") }
-            androidx.compose.material3.TextButton(
-                onClick = {
-                    uri?.let { u ->
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = mime
-                            putExtra(Intent.EXTRA_STREAM, u)
-                            clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        runCatching { context.startActivity(Intent.createChooser(share, "Share Office file")) }
-                            .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
-                    }
-                }, enabled = uri != null,
-            ) { Text("Share") }
-        }
-    } else {
-        Text(tool.detail.ifBlank { "Preparing Office file…" }, style = MaterialTheme.typography.bodySmall)
     }
 }
 
