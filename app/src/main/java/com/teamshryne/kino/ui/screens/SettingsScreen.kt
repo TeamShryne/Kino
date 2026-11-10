@@ -73,11 +73,13 @@ private val settingEntries = listOf(
 fun SettingsScreen(
     page: String?,
     dark: Boolean,
+    themeMode: String = "light",
     showToolDetails: Boolean,
     tableCellMinWidth: Int,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     onThemeChange: (Boolean) -> Unit,
+    onThemeModeChange: (String) -> Unit = {},
     onToolDetailChange: (Boolean) -> Unit,
     onTableCellMinWidthChange: (Int) -> Unit,
     pdfMaxPages: Int,
@@ -172,9 +174,11 @@ fun SettingsScreen(
             SettingsDetail(
                 page = page,
                 dark = dark,
+                themeMode = themeMode,
                 showToolDetails = showToolDetails,
                 tableCellMinWidth = tableCellMinWidth,
                 onThemeChange = onThemeChange,
+                onThemeModeChange = onThemeModeChange,
                 onToolDetailChange = onToolDetailChange,
                 onTableCellMinWidthChange = onTableCellMinWidthChange,
                 pdfMaxPages = pdfMaxPages,
@@ -232,9 +236,11 @@ private fun SettingsEntryRow(entry: SettingEntry, onOpen: (String) -> Unit) {
 private fun SettingsDetail(
     page: String,
     dark: Boolean,
+    themeMode: String = "light",
     showToolDetails: Boolean,
     tableCellMinWidth: Int,
     onThemeChange: (Boolean) -> Unit,
+    onThemeModeChange: (String) -> Unit = {},
     onToolDetailChange: (Boolean) -> Unit,
     onTableCellMinWidthChange: (Int) -> Unit,
     pdfMaxPages: Int,
@@ -274,7 +280,22 @@ private fun SettingsDetail(
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (page) {
             "appearance" -> SettingSurface {
-                SettingToggle("Dark theme", dark, onThemeChange)
+                Column(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Theme", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("light" to "Light", "dark" to "Dark", "auto" to "Auto").forEach { (mode, label) ->
+                            val selected = themeMode == mode
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.weight(1f).clickable { onThemeModeChange(mode) },
+                            ) {
+                                Text(label, modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                    Text("Auto follows your device’s light/dark setting.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             "pdf" -> SettingSurface {
                 Column {

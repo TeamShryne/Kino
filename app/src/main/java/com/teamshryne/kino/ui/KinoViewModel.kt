@@ -71,6 +71,8 @@ class KinoViewModel(
     val libraryError: StateFlow<String?> = _libraryError.asStateFlow()
     private val _firstRunCorePrompt = MutableStateFlow(!preferences.getBoolean("core_prompt_seen", false))
     val firstRunCorePrompt: StateFlow<Boolean> = _firstRunCorePrompt.asStateFlow()
+    private val _onboardingComplete = MutableStateFlow(preferences.getBoolean("onboarding_complete", false))
+    val onboardingComplete: StateFlow<Boolean> = _onboardingComplete.asStateFlow()
     private fun currentPdfLimits() = com.teamshryne.kino.data.tools.PdfLimits(
         maxPages = _pdfMaxPages.value,
         maxHtmlChars = _pdfMaxHtmlKb.value * 1024,
@@ -93,6 +95,8 @@ class KinoViewModel(
     val activeChat: StateFlow<String?> = _activeChat.asStateFlow()
     private val _messages = MutableStateFlow<List<KinoMessage>>(emptyList())
     val messages: StateFlow<List<KinoMessage>> = _messages.asStateFlow()
+    private val _themeMode = MutableStateFlow(preferences.getString("theme_mode", null) ?: if (preferences.getBoolean("dark", false)) "dark" else "light")
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
     private val _darkTheme = MutableStateFlow(preferences.getBoolean("dark", false))
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
     private val _showToolDetails = MutableStateFlow(preferences.getBoolean("tool_details", true))
@@ -216,6 +220,11 @@ class KinoViewModel(
     }
 
     fun dismissCorePrompt() { preferences.edit().putBoolean("core_prompt_seen", true).apply(); _firstRunCorePrompt.value = false }
+
+    fun completeOnboarding() {
+        preferences.edit().putBoolean("onboarding_complete", true).apply()
+        _onboardingComplete.value = true
+    }
 
     fun openBrowser() { _browserOpen.value = true }
     fun toggleBrowser() { if (_browserOpen.value) closeBrowser() else openBrowser() }
@@ -461,15 +470,16 @@ class KinoViewModel(
         refresh()
     }
 
-    fun newChat() = viewModelScope.launch {
-        val id = conversations.createChat()
+    fun newChat() {
+        // A new chat is kept as an in-memory draft until the first message is
+        // sent, so empty conversations never pollute the saved chat list.
+        val id = "draft-${UUID.randomUUID()}"
         _activeChat.value = id
         _messages.value = emptyList()
         _contextTokens.value = 0
         _thinkingEnabled.value = false
         _searchEnabled.value = false
         publishGeneration(id)
-        _chats.value = conversations.chats()
     }
 
     fun send(text: String) = viewModelScope.launch {
@@ -484,7 +494,12 @@ class KinoViewModel(
             _providerError.value = "Connect DeepSeek in Settings before sending a message."
             return@launch
         }
-        val chatId = _activeChat.value ?: conversations.createChat(body.take(48)).also { _activeChat.value = it }
+        val currentActive = _activeChat.value
+        val chatId = when {
+            currentActive == null -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            currentActive.startsWith("draft-") -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            else -> currentActive
+        }
         val requestedModelId = _selectedModel.value
         val requestedThinking = _thinkingEnabled.value
         val requestedSearch = _searchEnabled.value
@@ -1119,6 +1134,7 @@ class KinoViewModel(
         }
 
     fun deleteChat(id: String) = viewModelScope.launch {
+        if (id.startsWith("draft-")) { closeChat(); return@launch }
         generations[id]?.let { generation ->
             generation.cancelled.set(true)
             generationChanged(id)
@@ -1133,9 +1149,15 @@ class KinoViewModel(
         if (_activeChat.value == id) closeChat() else _chats.value = conversations.chats()
     }
 
+    fun setThemeMode(mode: String) {
+        val normalized = when (mode) { "dark", "light", "auto" -> mode; else -> "light" }
+        preferences.edit().putString("theme_mode", normalized).putBoolean("dark", normalized == "dark").apply()
+        _themeMode.value = normalized
+        _darkTheme.value = normalized == "dark"
+    }
+
     fun setDarkTheme(enabled: Boolean) {
-        preferences.edit().putBoolean("dark", enabled).apply()
-        _darkTheme.value = enabled
+        setThemeMode(if (enabled) "dark" else "light")
     }
 
     fun setShowToolDetails(enabled: Boolean) {

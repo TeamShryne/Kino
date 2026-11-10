@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.OpenInBrowser
@@ -48,6 +49,7 @@ private const val DEEPSEEK_CHAT_URL = "https://chat.deepseek.com/"
 
 @Composable
 fun DeepSeekLoginScreen(
+    dark: Boolean = false,
     connected: Boolean,
     onCredentials: (DeepSeekCredentials) -> Boolean,
     onBack: () -> Unit,
@@ -59,10 +61,10 @@ fun DeepSeekLoginScreen(
     var reloadKey by rememberSaveable { mutableIntStateOf(0) }
     var popupOpen by rememberSaveable { mutableStateOf(false) }
     var popupCloseKey by rememberSaveable { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().systemBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
-            Text("Connect DeepSeek", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text("Connect DeepSeek", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
         }
         if (!showBrowser) {
             Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -107,6 +109,7 @@ fun DeepSeekLoginScreen(
                 ) { Text("Close sign-in window") }
             }
             DeepSeekWebView(
+                dark = dark,
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 reloadKey = reloadKey,
                 popupCloseKey = popupCloseKey,
@@ -125,6 +128,7 @@ fun DeepSeekLoginScreen(
 
 @Composable
 private fun DeepSeekWebView(
+    dark: Boolean,
     modifier: Modifier,
     reloadKey: Int,
     popupCloseKey: Int,
@@ -148,6 +152,10 @@ private fun DeepSeekWebView(
 
             fun configure(webView: WebView) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    webView.settings.forceDark = if (dark) android.webkit.WebSettings.FORCE_DARK_ON else android.webkit.WebSettings.FORCE_DARK_OFF
+                }
+                webView.setBackgroundColor(if (dark) 0xFF111111.toInt() else 0xFFFFFFFF.toInt())
                 webView.settings.javaScriptEnabled = true
                 webView.settings.domStorageEnabled = true
                 webView.settings.allowFileAccess = false
