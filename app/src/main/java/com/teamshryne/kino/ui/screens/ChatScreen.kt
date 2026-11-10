@@ -559,7 +559,13 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
     val pdf = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
     val filename = pdf?.optString("filename").orEmpty()
     val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.pdf")) }
-    val title = pdf?.optString("title").orEmpty().ifBlank { "PDF ready" }
+    val status = tool.status
+    val progressTitle = when (status) {
+        "Preparing" -> "Writing PDF"
+        "Working" -> "Generating PDF"
+        else -> "PDF ready"
+    }
+    val title = if (safeFilename != null) pdf?.optString("title").orEmpty().ifBlank { "PDF ready" } else progressTitle
     Surface(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
         shape = RoundedCornerShape(20.dp),
@@ -607,7 +613,7 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
                     ) { Text("Share") }
                 }
             } else {
-                Text(tool.detail.ifBlank { "Preparing PDF…" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(progressTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
