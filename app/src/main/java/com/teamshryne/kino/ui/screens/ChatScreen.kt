@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DesktopWindows
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureAsPdf
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,9 +63,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ModalBottomSheet
@@ -143,11 +147,13 @@ fun ChatScreen(
     onRemoveAttachment: (String) -> Unit,
     onStop: () -> Unit,
     onProviderSettings: () -> Unit,
+    onRename: (String) -> Unit,
     browserOpen: Boolean,
     onToggleBrowser: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var renameOpen by rememberSaveable { mutableStateOf(false) }
     var selectedSource by remember { mutableStateOf<SearchSource?>(null) }
     val rows = remember(messages) { groupToolActivity(messages) }
     val liveRows = remember(liveTools) { groupToolActivity(liveTools) }
@@ -205,6 +211,11 @@ fun ChatScreen(
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Chat actions") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Rename chat") },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                onClick = { menuOpen = false; renameOpen = true },
+                            )
                             DropdownMenuItem(
                                 text = { Text("DeepSeek settings") },
                                 leadingIcon = { Icon(Icons.Rounded.Settings, null) },
@@ -283,6 +294,26 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (renameOpen) {
+        var renameValue by rememberSaveable { mutableStateOf(title) }
+        AlertDialog(
+            onDismissRequest = { renameOpen = false },
+            title = { Text("Rename chat") },
+            text = {
+                OutlinedTextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    label = { Text("Title") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { renameOpen = false; onRename(renameValue) }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } },
+        )
     }
 
     selectedSource?.let { source ->

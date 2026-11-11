@@ -140,6 +140,8 @@ class KinoViewModel(
     val remoteSessions: StateFlow<List<ProviderSession>> = _remoteSessions.asStateFlow()
     private val _attachedFiles = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val attachedFiles: StateFlow<List<Pair<String, String>>> = _attachedFiles.asStateFlow()
+    private val _draftTitle = MutableStateFlow<String?>(null)
+    val draftTitle: StateFlow<String?> = _draftTitle.asStateFlow()
 
     private fun generation(chatId: String) = generations.getOrPut(chatId) { ChatGeneration(chatId) }
     private fun newLiveToolId(@Suppress("UNUSED_PARAMETER") chatId: String) = runtime.nextLiveToolId.getAndDecrement()
@@ -467,6 +469,7 @@ class KinoViewModel(
         _streamingText.value = ""
         _streamingTools.value = emptyList()
         _isStreaming.value = false
+        _draftTitle.value = null
         refresh()
     }
 
@@ -479,6 +482,7 @@ class KinoViewModel(
         _contextTokens.value = 0
         _thinkingEnabled.value = false
         _searchEnabled.value = false
+        _draftTitle.value = null
         publishGeneration(id)
     }
 
@@ -497,7 +501,10 @@ class KinoViewModel(
         val currentActive = _activeChat.value
         val chatId = when {
             currentActive == null -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
-            currentActive.startsWith("draft-") -> conversations.createChat(body.take(48)).also { _activeChat.value = it }
+            currentActive.startsWith("draft-") -> conversations.createChat(_draftTitle.value ?: body.take(48)).also {
+                _activeChat.value = it
+                _draftTitle.value = null
+            }
             else -> currentActive
         }
         val requestedModelId = _selectedModel.value
@@ -1132,6 +1139,36 @@ class KinoViewModel(
             if (_activeChat.value == chatId) _messages.value = loaded
             _chats.value = conversations.chats()
         }
+
+    /** Renames a chat locally and keeps the linked DeepSeek session title in sync. */
+    fun renameChat(id: String, title: String) = viewModelScope.launch {
+        val clean = title.replace('\n', ' ').trim().take(80)
+        if (clean.isEmpty()) return@launch
+        if (id.startsWith("draft-")) {
+            // A draft chat has no saved row yet, so hold the title until the
+            // first message turns the draft into a real conversation.
+            _draftTitle.value = clean
+            return@launch
+        }
+        conversations.renameChat(id, clean)
+        _chats.value = conversations.chats()
+        val sessionId = conversations.providerState(id)?.sessionId
+        if (!sessionId.isNullOrBlank() && credentialStore.load() != null) {
+            runCatching { provider.updateSessionTitle(sessionId, clean) }
+                .onFailure { _providerError.value = it.message?.take(240) ?: "Could not rename the DeepSeek chat." }
+        }
+    }
+
+    /** Pins or unpins a chat and mirrors the state onto the linked DeepSeek session. */
+    fun setChatPinned(id: String, pinned: Boolean) = viewModelScope.launch {
+        conversations.setChatPinned(id, pinned)
+        _chats.value = conversations.chats()
+        val sessionId = conversations.providerState(id)?.sessionId
+        if (!sessionId.isNullOrBlank() && credentialStore.load() != null) {
+            runCatching { provider.setPinned(listOf(sessionId), pinned) }
+                .onFailure { _providerError.value = it.message?.take(240) ?: "Could not update the pinned chat." }
+        }
+    }
 
     fun deleteChat(id: String) = viewModelScope.launch {
         if (id.startsWith("draft-")) { closeChat(); return@launch }

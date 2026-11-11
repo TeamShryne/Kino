@@ -10,7 +10,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import android.app.Activity
 
-private val Accent = Color(0xFF1B4ED8)
+private val Accent = Color(0xFF7C3AED)
 private val Canvas = Color(0xFFFCFCFC)
 private val Ink = Color(0xFF27272A)
 private val Muted = Color(0xFF71717B)
@@ -28,10 +28,10 @@ fun KinoTheme(dark: Boolean, content: @Composable () -> Unit) {
         }
     }
     val scheme = if (dark) darkColorScheme(
-        primary = Color(0xFF7FA8FF), onPrimary = Color(0xFF07162E),
+        primary = Color(0xFF8B5CF6), onPrimary = Color.White,
         background = Color(0xFF0A0A0A), surface = Color(0xFF111111),
         surfaceVariant = Color(0xFF1F1F23), onSurface = Color(0xFFF5F5F5),
-        onSurfaceVariant = Color(0xFFC8C8C8), outline = Color(0xFF2A2A2E),
+        onSurfaceVariant = Color(0xFFA1A1AA), outline = Color(0xFF2A2A2E),
     ) else lightColorScheme(
         primary = Accent, onPrimary = Color.White,
         background = Canvas, surface = Color.White,

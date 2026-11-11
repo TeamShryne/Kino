@@ -1,20 +1,22 @@
 package com.teamshryne.kino.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,6 +29,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.teamshryne.kino.ui.screens.ChatScreen
 import com.teamshryne.kino.ui.screens.ChatsScreen
@@ -67,6 +71,7 @@ fun KinoApp(model: KinoViewModel) {
     val streamingTools by model.streamingTools.collectAsState()
     val contextTokens by model.contextTokens.collectAsState()
     val attachedFiles by model.attachedFiles.collectAsState()
+    val draftTitle by model.draftTitle.collectAsState()
     val remoteSessions by model.remoteSessions.collectAsState()
     val libraryStates by model.libraries.collectAsState()
     val libraryBusy by model.libraryBusy.collectAsState()
@@ -169,7 +174,7 @@ fun KinoApp(model: KinoViewModel) {
             )
             Box(Modifier.fillMaxSize().zIndex(if (browserOpen) 0f else 1f)) {
         ChatScreen(
-            title = selectedChat?.title ?: "New chat",
+            title = selectedChat?.title ?: draftTitle ?: "New chat",
             messages = messages,
             showToolDetails = showToolDetails,
             tableCellMinWidth = tableCellMinWidth,
@@ -194,6 +199,7 @@ fun KinoApp(model: KinoViewModel) {
             onRemoveAttachment = model::removeAttachment,
             onStop = model::stopGeneration,
             onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
+            onRename = { newTitle -> activeChat?.let { model.renameChat(it, newTitle) } },
             browserOpen = browserOpen,
             onToggleBrowser = model::toggleBrowser,
         )
@@ -203,25 +209,32 @@ fun KinoApp(model: KinoViewModel) {
         Scaffold(
             bottomBar = {
                 if (settingsPage == null) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                        MainTab.entries.forEach { item ->
-                            NavigationBarItem(
-                                selected = tab == item,
-                                onClick = { tab = item },
-                                icon = { Icon(if (item == MainTab.Chats) Icons.Rounded.AutoAwesome else Icons.Rounded.Settings, item.title) },
-                                label = { Text(item.title) },
-                            )
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.background) {
+                            MainTab.entries.forEach { item ->
+                                NavigationBarItem(
+                                    selected = tab == item,
+                                    onClick = { tab = item },
+                                    icon = {
+                                        Icon(
+                                            if (item == MainTab.Chats) Icons.Rounded.ChatBubbleOutline else Icons.Rounded.Settings,
+                                            item.title,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                    },
+                                    label = { Text(item.title) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = Color.Transparent,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                                )
+                            }
                         }
                     }
-                }
-            },
-            floatingActionButton = {
-                if (tab == MainTab.Chats) {
-                    ExtendedFloatingActionButton(
-                        onClick = { model.newChat() },
-                        icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        text = { Text("New chat") },
-                    )
                 }
             },
             containerColor = MaterialTheme.colorScheme.background,
@@ -278,11 +291,14 @@ fun KinoApp(model: KinoViewModel) {
                     onInstallLibrary = model::installLibrary,
                     onRefreshLibraries = model::refreshLibraries,
                 ) else ChatsScreen(
-                    chats = chats.filter { it.title.contains(query, true) || it.preview.contains(query, true) },
+                    chats = chats,
                     query = query,
                     onQuery = { query = it },
                     onOpen = model::openChat,
                     onDelete = { deleteTarget = it },
+                    onRename = model::renameChat,
+                    onPin = model::setChatPinned,
+                    onNewChat = model::newChat,
                 )
             }
         }
