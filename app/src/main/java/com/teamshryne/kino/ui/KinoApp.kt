@@ -199,7 +199,6 @@ fun KinoApp(model: KinoViewModel) {
             onRemoveAttachment = model::removeAttachment,
             onStop = model::stopGeneration,
             onProviderSettings = { model.closeChat(); tab = MainTab.Settings; settingsPage = "provider" },
-            onRename = { newTitle -> activeChat?.let { model.renameChat(it, newTitle) } },
             browserOpen = browserOpen,
             onToggleBrowser = model::toggleBrowser,
         )
