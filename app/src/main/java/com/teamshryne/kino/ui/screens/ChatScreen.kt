@@ -54,6 +54,13 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.Article
+import androidx.compose.material.icons.rounded.DataObject
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Slideshow
+import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -256,7 +263,7 @@ fun ChatScreen(
                         }
                         is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = false) { selectedSource = it }
                         is TimelineRow.PdfBlock -> PdfActivityBlock(row.message, tableCellMinWidth)
-                        is TimelineRow.OfficeBlock -> ToolActivityFileContent(row.message)
+                        is TimelineRow.OfficeBlock -> OfficeActivityBlock(row.message)
                     }
                 }
                 liveRows.forEach { row ->
@@ -271,7 +278,7 @@ fun ChatScreen(
                             PdfActivityBlock(row.message, tableCellMinWidth)
                         }
                         is TimelineRow.OfficeBlock -> item(key = "live-" + row.key) {
-                            ToolActivityFileContent(row.message)
+                            OfficeActivityBlock(row.message)
                         }
                     }
                 }
@@ -631,72 +638,130 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
 
 private val OFFICE_FILE_TOOLS = setOf("create_document", "create_spreadsheet", "create_presentation", "create_data_file")
 
-/** Card for a generated office file, with open and share actions. */
+/**
+ * The icon and the noun for each office format, so a Word file reads as a
+ * Word file and a spreadsheet reads as a spreadsheet.
+ */
+private data class OfficeFormatLook(val label: String, val icon: ImageVector, val extension: String)
+
+private fun officeFormatLook(format: String): OfficeFormatLook = when (format.lowercase()) {
+    "docx" -> OfficeFormatLook("Word document", Icons.Rounded.Description, "docx")
+    "odt" -> OfficeFormatLook("OpenDocument text", Icons.Rounded.Description, "odt")
+    "pdf" -> OfficeFormatLook("PDF document", Icons.Rounded.PictureAsPdf, "pdf")
+    "html" -> OfficeFormatLook("Web page", Icons.Rounded.Language, "html")
+    "epub" -> OfficeFormatLook("E-book", Icons.Rounded.MenuBook, "epub")
+    "md" -> OfficeFormatLook("Markdown file", Icons.Rounded.Article, "md")
+    "rtf" -> OfficeFormatLook("Rich text", Icons.Rounded.Description, "rtf")
+    "txt" -> OfficeFormatLook("Text file", Icons.Rounded.Article, "txt")
+    "xlsx" -> OfficeFormatLook("Excel workbook", Icons.Rounded.TableChart, "xlsx")
+    "ods" -> OfficeFormatLook("OpenDocument spreadsheet", Icons.Rounded.TableChart, "ods")
+    "csv" -> OfficeFormatLook("CSV data", Icons.Rounded.TableChart, "csv")
+    "tsv" -> OfficeFormatLook("TSV data", Icons.Rounded.TableChart, "tsv")
+    "pptx" -> OfficeFormatLook("PowerPoint deck", Icons.Rounded.Slideshow, "pptx")
+    "odp" -> OfficeFormatLook("OpenDocument presentation", Icons.Rounded.Slideshow, "odp")
+    "json" -> OfficeFormatLook("JSON data", Icons.Rounded.DataObject, "json")
+    "yaml" -> OfficeFormatLook("YAML data", Icons.Rounded.DataObject, "yaml")
+    "xml" -> OfficeFormatLook("XML data", Icons.Rounded.DataObject, "xml")
+    else -> OfficeFormatLook("File", Icons.Rounded.AttachFile, format.lowercase())
+}
+
+/** The card for a generated office file, styled like the PDF card. */
 @Composable
-private fun ToolActivityFileContent(message: KinoMessage) {
+private fun OfficeActivityBlock(message: KinoMessage) {
     val context = LocalContext.current
     val tool = message.tool ?: return
     val detail = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
-    if (detail == null) {
-        Text(tool.detail.ifBlank { "Preparing the file…" }, style = MaterialTheme.typography.bodySmall)
-        return
+    val format = detail?.optString("format").orEmpty()
+    val look = officeFormatLook(format)
+    val status = tool.status
+    val progressTitle = when (status) {
+        "Preparing" -> "Writing ${look.label}"
+        "Working" -> "Generating ${look.label}"
+        else -> "${look.label} ready"
     }
-    val fileName = detail.optString("filename")
-    val title = detail.optString("title").ifBlank { detail.optString("label") }
-    val label = detail.optString("label")
-    val summary = detail.optString("summary")
-    val mime = detail.optString("mime").ifBlank { "application/octet-stream" }
+    val title = detail?.optString("title").orEmpty().ifBlank { look.label }
+    val summary = detail?.optString("summary").orEmpty()
+    val mime = detail?.optString("mime").orEmpty().ifBlank { "application/octet-stream" }
     val issues = remember(detail) {
-        val array = detail.optJSONArray("issues") ?: org.json.JSONArray()
+        val array = detail?.optJSONArray("issues") ?: org.json.JSONArray()
         (0 until array.length()).mapNotNull { index ->
             array.optJSONObject(index)?.optString("message")?.takeIf { it.isNotBlank() }
         }
     }
+    val fileName = detail?.optString("filename").orEmpty()
     val safeName = fileName.takeIf { it.matches(Regex("[a-z0-9][a-z0-9-]{0,79}\\.[a-z0-9]{1,10}")) }
-    Column(Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.bodySmall)
-        if (summary.isNotBlank()) {
-            Text("$label · $summary", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (safeName != null) {
-            val uri = remember(safeName) {
-                val file = File(context.filesDir, "office-exports/$safeName")
-                if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+    val ready = safeName != null && status != "Failed"
+
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(look.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    if (ready) title else progressTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        uri?.let { fileUri ->
-                            val open = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUri, mime)
-                                clipData = ClipData.newUri(context.contentResolver, title, fileUri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (ready) {
+                val uri = remember(safeName) {
+                    val file = File(context.filesDir, "office-exports/$safeName")
+                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+                }
+                Text(
+                    if (summary.isBlank()) "Your ${look.label.lowercase()} is ready to open or share."
+                    else "Your ${look.label.lowercase()} is ready to open or share. $summary",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            uri?.let { fileUri ->
+                                val open = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(fileUri, mime)
+                                    clipData = ClipData.newUri(context.contentResolver, title, fileUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(open, "Open ${look.label}")) }
+                                    .onFailure { Toast.makeText(context, "No app can open this file.", Toast.LENGTH_SHORT).show() }
                             }
-                            runCatching { context.startActivity(Intent.createChooser(open, "Open $label")) }
-                                .onFailure { Toast.makeText(context, "No app can open this file.", Toast.LENGTH_SHORT).show() }
-                        }
-                    }, enabled = uri != null,
-                ) { Text("Open") }
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        uri?.let { fileUri ->
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = mime
-                                putExtra(Intent.EXTRA_STREAM, fileUri)
-                                clipData = ClipData.newUri(context.contentResolver, title, fileUri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }, enabled = uri != null,
+                    ) { Text("Open ${look.extension.uppercase()}") }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            uri?.let { fileUri ->
+                                val share = Intent(Intent.ACTION_SEND).apply {
+                                    type = mime
+                                    putExtra(Intent.EXTRA_STREAM, fileUri)
+                                    clipData = ClipData.newUri(context.contentResolver, title, fileUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(share, "Share ${look.label}")) }
+                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
                             }
-                            runCatching { context.startActivity(Intent.createChooser(share, "Share $label")) }
-                                .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
-                        }
-                    }, enabled = uri != null,
-                ) { Text("Share") }
+                        }, enabled = uri != null,
+                    ) { Text("Share") }
+                }
+            } else if (status == "Failed") {
+                Text(
+                    tool.detail.ifBlank { "The file could not be created." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else {
+                Text(progressTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-        if (issues.isNotEmpty()) {
-            Text("Notes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            issues.forEach { issue ->
-                Text("• $issue", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (issues.isNotEmpty()) {
+                Text("Notes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                issues.forEach { issue ->
+                    Text("• $issue", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
