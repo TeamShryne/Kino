@@ -37,7 +37,7 @@ data class ListBlock(
 data class TableBlock(
     val columns: List<TableColumn>,
     val rows: List<List<String>>,
-    val caption: String? = null,
+    override val caption: String? = null,
     val zebra: Boolean = true,
     val alignments: List<ColumnAlignment> = emptyList(),
 ) : Block {
@@ -76,7 +76,7 @@ data class CodeBlock(val text: String, val language: String?) : Block
 
 data class ImageBlock(
     val source: String,
-    val caption: String? = null,
+    override val caption: String? = null,
     val alt: String? = null,
     val maxWidthPercent: Int = 100,
 ) : Block

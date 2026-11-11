@@ -48,7 +48,7 @@ object PptxWriter {
     fun write(
         deck: DeckSpec,
         theme: OfficeTheme,
-        issues: MutableList<ReportIssue> = emptyList(),
+        issues: MutableList<ReportIssue> = mutableListOf(),
     ): ByteArray {
         val writer = PptxPackage(deck, theme, issues)
         return ZipWriter.build(writer.build())
@@ -858,7 +858,7 @@ private class SlidePainter(
         return cursor
     }
 
-    private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int = when (block) {
+    private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int { return when (block) {
         is ParagraphBlock -> {
             val height = measure(block.text, SIZE_BODY / 100.0, width)
             textBox(x, y, width, height, paragraph(runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))

@@ -1,6 +1,6 @@
 package com.teamshryne.kino.office.render
 
-import com.teamshryne.kino.office.OfficeResult.ReportIssue
+import com.teamshryne.kino.office.ReportIssue
 import com.teamshryne.kino.office.model.Block
 import com.teamshryne.kino.office.model.CalloutBlock
 import com.teamshryne.kino.office.model.CalloutKind
@@ -19,6 +19,7 @@ import com.teamshryne.kino.office.model.QuoteBlock
 import com.teamshryne.kino.office.model.SpacerBlock
 import com.teamshryne.kino.office.model.StatBlock
 import com.teamshryne.kino.office.model.TableBlock
+import com.teamshryne.kino.office.model.TocBlock
 import com.teamshryne.kino.office.theme.OfficeTheme
 
 /**
@@ -253,7 +254,7 @@ object RtfWriter {
 
     private enum class Align { LEFT, CENTER, RIGHT }
 
-    private class ColorTable(theme: OfficeTheme) {
+    private class ColorTable(private val theme: OfficeTheme) {
         val ink: Int = 1
         val inkSoft: Int = 2
         val muted: Int = 3

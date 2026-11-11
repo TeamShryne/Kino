@@ -1,6 +1,6 @@
 package com.teamshryne.kino.office.parse
 
-import com.teamshryne.kino.office.OfficeResult.ReportIssue
+import com.teamshryne.kino.office.ReportIssue
 import com.teamshryne.kino.office.SpecException
 import com.teamshryne.kino.office.json.JsonValue
 import com.teamshryne.kino.office.json.asArrayOrNull
@@ -233,7 +233,7 @@ object SpecParser {
             rows = padded,
             caption = obj.string("caption"),
             zebra = obj.bool("zebra", true),
-            alignments = obj["alignments"]?.asArrayOrNull()?.map { alignment(it.orEmpty(), "$path.alignments") }.orEmpty(),
+            alignments = obj["alignments"]?.asArrayOrNull()?.map { alignment(it.asStringOrNull().orEmpty(), "$path.alignments") }.orEmpty(),
         )
     }
 

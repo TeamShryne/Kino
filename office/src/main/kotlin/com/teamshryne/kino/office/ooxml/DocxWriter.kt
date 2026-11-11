@@ -50,7 +50,7 @@ object DocxWriter {
         theme: OfficeTheme,
         geometry: PageGeometry,
         images: Map<String, ImageData> = emptyMap(),
-        issues: MutableList<ReportIssue> = emptyList(),
+        issues: MutableList<ReportIssue> = mutableListOf(),
     ): ByteArray {
         val builder = DocxBuilder(theme, geometry, images, issues)
         return ZipWriter.build(builder.build(document))

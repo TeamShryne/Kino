@@ -1,6 +1,6 @@
 package com.teamshryne.kino.office.render
 
-import com.teamshryne.kino.office.OfficeResult.ReportIssue
+import com.teamshryne.kino.office.ReportIssue
 import com.teamshryne.kino.office.model.Block
 import com.teamshryne.kino.office.model.DocumentSpec
 import com.teamshryne.kino.office.model.HeadingBlock
@@ -21,9 +21,9 @@ object EpubWriter {
         document: DocumentSpec,
         theme: OfficeTheme,
         geometry: PageGeometry,
-        issues: MutableList<ReportIssue> = emptyList(),
+        issues: MutableList<ReportIssue> = mutableListOf(),
     ): ByteArray {
-        val renderer = HtmlRenderer(theme, geometry, print = false)
+        val renderer = HtmlRenderer(theme, geometry, printMode = false)
         val chapters = split(document.blocks)
         val bookId = "urn:uuid:${UUID.randomUUID()}"
         val entries = mutableListOf<ZipWriter.Entry>()

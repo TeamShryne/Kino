@@ -54,7 +54,7 @@ object OdfPresentationWriter {
     fun write(
         deck: DeckSpec,
         theme: OfficeTheme,
-        issues: MutableList<ReportIssue> = emptyList(),
+        issues: MutableList<ReportIssue> = mutableListOf(),
     ): ByteArray {
         val builder = OdpBuilder(deck, theme, issues)
         return builder.build()
@@ -1259,7 +1259,7 @@ private class OdpBuilder(
                 "fo:color=\"${hex(color)}\"" +
                 (if (bold) " fo:font-weight=\"bold\"" else "") +
                 (if (italic) " fo:font-style=\"italic\"" else "") +
-                (if (spacing > 0) " fo:letter-spacing=\"${String.format(Locale.US, "%.3fcm\", spacing)}\"" else "") +
+                (if (spacing > 0) " fo:letter-spacing=\"${String.format(Locale.US, "%.3fcm", spacing)}\"" else "") +
                 "/>",
         )
         automaticStyles.append("</style:style>")

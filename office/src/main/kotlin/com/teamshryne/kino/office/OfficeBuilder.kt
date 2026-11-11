@@ -95,7 +95,7 @@ object OfficeBuilder {
         val bytes = when (format) {
             OfficeFormat.DOCX -> DocxWriter.write(document, theme, geometry, images, issues)
             OfficeFormat.ODT -> OdfTextWriter.write(document, theme, geometry, issues)
-            OfficeFormat.HTML -> HtmlRenderer(theme, geometry, print = false).render(document).toByteArray(Charsets.UTF_8)
+            OfficeFormat.HTML -> HtmlRenderer(theme, geometry, printMode = false).render(document).toByteArray(Charsets.UTF_8)
             OfficeFormat.EPUB -> EpubWriter.write(document, theme, geometry, issues)
             OfficeFormat.MARKDOWN -> MarkdownWriter.write(document).toByteArray(Charsets.UTF_8)
             OfficeFormat.RTF -> RtfWriter.write(document, theme, geometry).toByteArray(Charsets.UTF_8)

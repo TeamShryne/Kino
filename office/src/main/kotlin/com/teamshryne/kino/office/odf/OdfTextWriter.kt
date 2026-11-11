@@ -53,7 +53,7 @@ object OdfTextWriter {
         document: DocumentSpec,
         theme: OfficeTheme,
         geometry: PageGeometry,
-        issues: MutableList<ReportIssue> = emptyList(),
+        issues: MutableList<ReportIssue> = mutableListOf(),
     ): ByteArray {
         val builder = OdtBuilder(theme, geometry, issues)
         return builder.build(document)
