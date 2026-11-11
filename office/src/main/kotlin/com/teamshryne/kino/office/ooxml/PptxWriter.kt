@@ -861,18 +861,18 @@ private class SlidePainter(
     }
 
     private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int {
-        val self = this
+        val me = this
         return when (block) {
         is ParagraphBlock -> {
-            val height = self.measure(block.text, SIZE_BODY / 100.0, width)
-            self.textBox(x, y, width, height, self.paragraph(self.runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))
+            val height = me.measure(block.text, SIZE_BODY / 100.0, width)
+            me.textBox(x, y, width, height, me.paragraph(me.runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))
             y + height + 150000
         }
 
         is ListBlock -> {
             val paragraphs = block.items.joinToString("") { item ->
-                self.paragraph(
-                    self.runs(item, SIZE_BODY, theme.ink, theme.sansFont),
+                me.paragraph(
+                    me.runs(item, SIZE_BODY, theme.ink, theme.sansFont),
                     bullet = if (block.ordered) null else "-",
                     ordered = block.ordered,
                     bulletColor = theme.accent,
@@ -881,8 +881,8 @@ private class SlidePainter(
                     spaceAfter = 700,
                 )
             }
-            val height = block.items.sumOf { self.measure(it, SIZE_BODY / 100.0, width - 228600) } + block.items.size * 9000
-            self.textBox(x, y, width, height, paragraphs)
+            val height = block.items.sumOf { me.measure(it, SIZE_BODY / 100.0, width - 228600) } + block.items.size * 9000
+            me.textBox(x, y, width, height, paragraphs)
             y + height + 170000
         }
 
@@ -893,8 +893,8 @@ private class SlidePainter(
                 else -> SIZE_BODY + 200
             }
             val text = if (block.numbered) "${block.level}. ${block.text}" else block.text
-            val height = self.measure(text, size / 100.0, width)
-            self.textBox(x, y, width, height, self.paragraph(self.runs(text, size, theme.ink, theme.serifFont, bold = true)))
+            val height = me.measure(text, size / 100.0, width)
+            me.textBox(x, y, width, height, me.paragraph(me.runs(text, size, theme.ink, theme.serifFont, bold = true)))
             y + height + 130000
         }
 
@@ -911,11 +911,11 @@ private class SlidePainter(
             val tileHeight = 1300000
             items.forEachIndexed { index, item ->
                 val tileX = x + index * (tileWidth + gap)
-                self.shape(tileX, y, tileWidth, tileHeight, geom = "roundRect", adj = 8000, fill = theme.surface, line = theme.border, name = "Stat tile")
+                me.shape(tileX, y, tileWidth, tileHeight, geom = "roundRect", adj = 8000, fill = theme.surface, line = theme.border, name = "Stat tile")
                 val inner = 160000
                 val paragraphs = buildString {
-                    append(self.paragraph(self.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120)))
-                    append(self.paragraph(self.runs(item.value, SIZE_STAT_VALUE - 600, theme.accent, theme.serifFont, bold = true)))
+                    append(me.paragraph(me.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120)))
+                    append(me.paragraph(me.runs(item.value, SIZE_STAT_VALUE - 600, theme.accent, theme.serifFont, bold = true)))
                     val delta = item.delta
                     if (!delta.isNullOrBlank()) {
                         val deltaColor = when (item.positive) {
@@ -923,10 +923,10 @@ private class SlidePainter(
                             false -> theme.negative
                             null -> theme.muted
                         }
-                        append(self.paragraph(self.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
+                        append(me.paragraph(me.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
                     }
                 }
-                self.textBox(tileX + inner, y + inner, tileWidth - inner * 2, tileHeight - inner * 2, paragraphs, anchor = "ctr")
+                me.textBox(tileX + inner, y + inner, tileWidth - inner * 2, tileHeight - inner * 2, paragraphs, anchor = "ctr")
             }
             y + tileHeight + 200000
         }
@@ -939,17 +939,17 @@ private class SlidePainter(
             val labelWidth = (width * 35) / 100
             var cursor = y
             block.items.forEach { item ->
-                val labelHeight = self.measure(item.label, SIZE_BODY / 100.0, labelWidth - 120000)
-                val valueHeight = self.measure(item.value, SIZE_BODY / 100.0, width - labelWidth - 120000)
+                val labelHeight = me.measure(item.label, SIZE_BODY / 100.0, labelWidth - 120000)
+                val valueHeight = me.measure(item.value, SIZE_BODY / 100.0, width - labelWidth - 120000)
                 val rowHeight = max(labelHeight, valueHeight)
-                self.textBox(x, cursor, labelWidth - 120000, rowHeight, self.paragraph(self.runs(item.label, SIZE_BODY, theme.inkSoft, theme.sansFont, bold = true)))
-                self.textBox(x + labelWidth, cursor, width - labelWidth, rowHeight, self.paragraph(self.runs(item.value, SIZE_BODY, theme.ink, theme.sansFont)))
+                me.textBox(x, cursor, labelWidth - 120000, rowHeight, me.paragraph(me.runs(item.label, SIZE_BODY, theme.inkSoft, theme.sansFont, bold = true)))
+                me.textBox(x + labelWidth, cursor, width - labelWidth, rowHeight, me.paragraph(me.runs(item.value, SIZE_BODY, theme.ink, theme.sansFont)))
                 cursor += rowHeight + 60000
-                self.shape(x = x, y = cursor - 30000, w = width, h = 9525, fill = theme.border)
+                me.shape(x = x, y = cursor - 30000, w = width, h = 9525, fill = theme.border)
                 cursor += 30000
                 if (!item.hint.isNullOrBlank()) {
-                    val hintHeight = self.measure(item.hint, SIZE_SMALL / 100.0, width)
-                    self.textBox(x, cursor, width, hintHeight, self.paragraph(self.run(item.hint, SIZE_SMALL, theme.muted, theme.sansFont)))
+                    val hintHeight = me.measure(item.hint, SIZE_SMALL / 100.0, width)
+                    me.textBox(x, cursor, width, hintHeight, me.paragraph(me.run(item.hint, SIZE_SMALL, theme.muted, theme.sansFont)))
                     cursor += hintHeight + 60000
                 }
             }
@@ -958,17 +958,17 @@ private class SlidePainter(
 
         is QuoteBlock -> {
             val textWidth = width - 320000
-            val height = self.measure(block.text, 2000.0, textWidth)
-            val attributionHeight = if (block.attribution.isNullOrBlank()) 0 else self.measure(block.attribution, 13.0, textWidth)
-            self.shape(x = x, y = y, w = 50800, h = height + attributionHeight, fill = theme.accent)
-            self.textBox(x + 320000, y, textWidth, height, self.paragraph(self.runs(block.text, 2000, theme.ink, theme.serifFont, italic = true)))
+            val height = me.measure(block.text, 2000.0, textWidth)
+            val attributionHeight = if (block.attribution.isNullOrBlank()) 0 else me.measure(block.attribution, 13.0, textWidth)
+            me.shape(x = x, y = y, w = 50800, h = height + attributionHeight, fill = theme.accent)
+            me.textBox(x + 320000, y, textWidth, height, me.paragraph(me.runs(block.text, 2000, theme.ink, theme.serifFont, italic = true)))
             if (attributionHeight > 0) {
-                self.textBox(
+                me.textBox(
                     x + 320000,
                     y = y + height + 90000,
                     w = textWidth,
                     h = attributionHeight,
-                    paragraphs = self.paragraph(self.runs("— ${block.attribution}", 1300, theme.muted, theme.sansFont)),
+                    paragraphs = me.paragraph(me.runs("— ${block.attribution}", 1300, theme.muted, theme.sansFont)),
                 )
             }
             y + height + attributionHeight + 180000
@@ -976,37 +976,37 @@ private class SlidePainter(
 
         is CodeBlock -> {
             val inner = 200000
-            val height = self.measure(block.text, 1300.0, width - inner * 2) + inner * 2
-            self.shape(x, y, width, height, fill = theme.surfaceAlt, line = theme.border, name = "Code")
+            val height = me.measure(block.text, 1300.0, width - inner * 2) + inner * 2
+            me.shape(x, y, width, height, fill = theme.surfaceAlt, line = theme.border, name = "Code")
             val paragraphs = buildString {
                 if (!block.language.isNullOrBlank()) {
-                    append(self.paragraph(self.run(block.language.uppercase(), SIZE_TINY, theme.muted, theme.sansFont, bold = true, spacing = 100)))
+                    append(me.paragraph(me.run(block.language.uppercase(), SIZE_TINY, theme.muted, theme.sansFont, bold = true, spacing = 100)))
                 }
-                append(self.paragraph(self.runs(block.text, 1300, theme.ink, theme.monoFont)))
+                append(me.paragraph(me.runs(block.text, 1300, theme.ink, theme.monoFont)))
             }
-            self.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
+            me.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
             y + height + 180000
         }
 
         is CalloutBlock -> {
-            val accent = self.calloutColor(block.kind)
+            val accent = me.calloutColor(block.kind)
             val inner = 220000
-            val titleHeight = if (block.title.isNullOrBlank()) 0 else self.measure(block.title, SIZE_BODY / 100.0, width - inner * 2)
-            val height = self.measure(block.text, SIZE_BODY / 100.0, width - inner * 2) + titleHeight + inner * 2
-            self.shape(x, y, width, height, geom = "roundRect", adj = 6000, fill = Colors.lighten(accent, 0.88), line = Colors.lighten(accent, 0.55), name = "Callout")
-            self.shape(x = x, y = y, w = 60000, h = height, fill = accent, name = "Callout accent")
+            val titleHeight = if (block.title.isNullOrBlank()) 0 else me.measure(block.title, SIZE_BODY / 100.0, width - inner * 2)
+            val height = me.measure(block.text, SIZE_BODY / 100.0, width - inner * 2) + titleHeight + inner * 2
+            me.shape(x, y, width, height, geom = "roundRect", adj = 6000, fill = Colors.lighten(accent, 0.88), line = Colors.lighten(accent, 0.55), name = "Callout")
+            me.shape(x = x, y = y, w = 60000, h = height, fill = accent, name = "Callout accent")
             val paragraphs = buildString {
                 if (titleHeight > 0) {
-                    append(self.paragraph(self.runs(block.title.orEmpty(), SIZE_BODY, Colors.darken(accent, 0.25), theme.sansFont, bold = true)))
+                    append(me.paragraph(me.runs(block.title.orEmpty(), SIZE_BODY, Colors.darken(accent, 0.25), theme.sansFont, bold = true)))
                 }
-                append(self.paragraph(self.runs(block.text, SIZE_BODY, theme.inkSoft, theme.sansFont)))
+                append(me.paragraph(me.runs(block.text, SIZE_BODY, theme.inkSoft, theme.sansFont)))
             }
-            self.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
+            me.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
             y + height + 180000
         }
 
         is DividerBlock -> {
-            self.shape(x, y + 80000, width, 9525, fill = theme.border, name = "Divider")
+            me.shape(x, y + 80000, width, 9525, fill = theme.border, name = "Divider")
             y + 260000
         }
 
