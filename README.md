@@ -10,6 +10,7 @@ Kino is an Android chat app for everyday conversations with a small amount of ag
 - SQLite-backed conversation and ordered message history
 - Tool activity stored in the message timeline and shown in expandable cards
 - Local calculator, date/time, current-chat search, and HTML-to-PDF tools
+- Markdown messages with code block cards (copy and download) and full LaTeX formulas
 - Settings pages for general behavior, appearance, chat activity, provider, storage, and app info
 - Light and dark palettes, with settings persisted on device
 - GitHub Actions builds and publishes a debug APK artifact, with Gradle output/configuration caches and automatic retention of the 15 newest Actions caches
@@ -31,6 +32,23 @@ app/src/main/java/com/teamshryne/kino/
 ## Build
 
 Builds run in GitHub Actions on pushes to `main`, pull requests, or manual dispatch. The workflow uploads `kino-debug.apk` as an artifact. Kino is not built locally as part of the current workflow.
+
+## Markdown rendering
+
+Messages are split into prose, code blocks, tables and formulas before they are rendered, so each
+part can be drawn the way it deserves.
+
+- Code blocks become a card with the language, a copy button and a download button. The body uses a
+  monospace font and scrolls sideways instead of wrapping. Copy puts the snippet on the clipboard,
+  download stores it in the shared Downloads folder on Android 10 and newer and asks for a location
+  on older versions.
+- LaTeX is typeset with a full TeX engine (amsmath and amssymb included). Inline `$x$`, display
+  `$$ ... $$`, `\(x\)`, `\[x\]` and the amsmath environments (`align`, `gather`, `multline`,
+  `cases`, `matrix`, `array`, ...) are all supported. Text that only looks like math, such as
+  `$5 and $10`, keeps its literal dollar signs, and a formula that cannot be typeset falls back to
+  its source instead of disappearing.
+- Colors follow the light and dark palette, including code, quotes, links and formulas, and a
+  theme change re-renders the message so formulas never keep the color of the previous theme.
 
 ## UI direction
 
