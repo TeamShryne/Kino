@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.teamshryne.kino.ui.KinoViewModel
 import com.teamshryne.kino.ui.KinoApp
@@ -22,7 +23,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val model: KinoViewModel = viewModel()
-            val dark by model.darkTheme.collectAsState()
+            val themeMode by model.themeMode.collectAsState()
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> systemDark
+            }
             KinoTheme(dark) { KinoApp(model) }
         }
     }
