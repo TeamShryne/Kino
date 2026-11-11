@@ -891,8 +891,9 @@ private class DocxBuilder(
                 append("</w:tr>")
             }
             append("</w:tbl>")
-            block.title?.takeIf { it.isNotBlank() }?.let {
-                append(paragraph("Caption", run(InlineMarkup.plain(it))))
+            val caption = block.title?.takeIf { it.isNotBlank() }
+            if (caption != null) {
+                append(paragraph("Caption", run(InlineMarkup.plain(caption))))
             } else {
                 append(paragraph(content = "", spacing = "<w:spacing w:after=\"0\"/>"))
             }

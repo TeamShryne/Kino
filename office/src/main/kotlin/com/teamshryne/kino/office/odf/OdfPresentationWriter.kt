@@ -107,8 +107,6 @@ private class OdpBuilder(
     private val theme: OfficeTheme,
     private val issues: MutableList<ReportIssue>,
 ) {
-    private val self get() = this
-
 
     private val automaticStyles = StringBuilder()
     private var graphicCounter = 0
@@ -305,26 +303,26 @@ private class OdpBuilder(
         val total = titleHeight + ruleGap + ruleThickness + gap + subtitleHeight
         var y = (PAGE_HEIGHT_CM - total) / 2
 
-        self.textBox(
+        textBox(
             page = page,
             x = 3.81,
             y = y,
             width = boxWidth,
             height = titleHeight,
-            paragraphs = self.paragraph(textStyle(sizePt = 40.0, color = theme.accent, bold = true, font = theme.serifFont, align = "center")),
+            paragraphs = paragraph(textStyle(sizePt = 40.0, color = theme.accent, bold = true, font = theme.serifFont, align = "center")),
             content = title,
         )
         y += titleHeight + ruleGap
-        self.rectangle(page, 3.81 + (boxWidth - 2.54) / 2, y, 2.54, ruleThickness, theme.accent)
+        rectangle(page, 3.81 + (boxWidth - 2.54) / 2, y, 2.54, ruleThickness, theme.accent)
         y += ruleThickness + gap
         if (subtitle.isNotBlank()) {
-            self.textBox(
+            textBox(
                 page = page,
                 x = 3.81,
                 y = y,
                 width = boxWidth,
                 height = subtitleHeight,
-                paragraphs = self.paragraph(textStyle(sizePt = 20.0, color = theme.inkSoft, align = "center")),
+                paragraphs = paragraph(textStyle(sizePt = 20.0, color = theme.inkSoft, align = "center")),
                 content = subtitle,
             )
         }
@@ -336,24 +334,24 @@ private class OdpBuilder(
         val bandHeight = 4.2
         val bandY = (PAGE_HEIGHT_CM - bandHeight) / 2 - 1.2
 
-        self.textBox(
+        textBox(
             page = page,
             x = MARGIN_CM,
             y = bandY - 1.2,
             width = CONTENT_WIDTH_CM,
             height = 0.7,
-            paragraphs = self.paragraph(textStyle(sizePt = 12.0, color = theme.muted, bold = true, spacing = 0.12)),
+            paragraphs = paragraph(textStyle(sizePt = 12.0, color = theme.muted, bold = true, spacing = 0.12)),
             content = "SECTION",
         )
-        self.rectangle(page, MARGIN_CM, bandY, CONTENT_WIDTH_CM, bandHeight, theme.accent)
+        rectangle(page, MARGIN_CM, bandY, CONTENT_WIDTH_CM, bandHeight, theme.accent)
         val bandColor = if (Colors.isDark(theme.accent)) "#FFFFFF" else "#1A1A1A"
-        self.textBox(
+        textBox(
             page = page,
             x = MARGIN_CM + 0.6,
             y = bandY,
             width = CONTENT_WIDTH_CM - 1.2,
             height = bandHeight,
-            paragraphs = self.paragraph(
+            paragraphs = paragraph(
                 textStyle(sizePt = 32.0, color = bandColor, bold = true, font = theme.serifFont, align = "center"),
                 verticalAlign = "middle",
             ),
@@ -361,13 +359,13 @@ private class OdpBuilder(
         )
         if (subtitle.isNotBlank()) {
             val height = textHeight(subtitle, 18.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = bandY + bandHeight + 0.8,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 18.0, color = theme.inkSoft, align = "center")),
+                paragraphs = paragraph(textStyle(sizePt = 18.0, color = theme.inkSoft, align = "center")),
                 content = subtitle,
             )
         }
@@ -382,13 +380,13 @@ private class OdpBuilder(
         var y = MARGIN_CM
         if (title.isNotBlank()) {
             val height = textHeight(title, 28.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
                 content = title,
             )
             y += height + 0.9
@@ -400,24 +398,24 @@ private class OdpBuilder(
         val total = quoteHeight + (if (attributionHeight > 0) 0.5 + attributionHeight else 0.0)
         val start = max(y, (PAGE_HEIGHT_CM - total) / 2)
 
-        self.rectangle(page, MARGIN_CM, start, 0.14, total, theme.accent)
-        self.textBox(
+        rectangle(page, MARGIN_CM, start, 0.14, total, theme.accent)
+        textBox(
             page = page,
             x = textX,
             y = start,
             width = textWidth,
             height = quoteHeight,
-            paragraphs = self.paragraph(textStyle(sizePt = 26.0, color = theme.ink, italic = true, font = theme.serifFont)),
+            paragraphs = paragraph(textStyle(sizePt = 26.0, color = theme.ink, italic = true, font = theme.serifFont)),
             content = quote,
         )
         if (attributionHeight > 0) {
-            self.textBox(
+            textBox(
                 page = page,
                 x = textX,
                 y = start + quoteHeight + 0.5,
                 width = textWidth,
                 height = attributionHeight,
-                paragraphs = self.paragraph(textStyle(sizePt = 14.0, color = theme.muted)),
+                paragraphs = paragraph(textStyle(sizePt = 14.0, color = theme.muted)),
                 content = "— $attribution",
             )
         }
@@ -433,29 +431,29 @@ private class OdpBuilder(
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
             val height = textHeight(title, 28.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
                 content = title,
             )
             y += height + 0.35
-            self.rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
+            rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
             y += 0.09 + 0.9
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
             val height = textHeight(subtitle, 16.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
+                paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
                 content = subtitle,
             )
             y += height + 0.7
@@ -471,22 +469,22 @@ private class OdpBuilder(
             val inner = 0.5
             val labelHeight = 0.7
             val valueHeight = textHeight(item.value, 30.0, tileWidth - inner * 2)
-            self.textBox(
+            textBox(
                 page = page,
                 x = x + inner,
                 y = y + inner,
                 width = tileWidth - inner * 2,
                 height = labelHeight,
-                paragraphs = self.paragraph(textStyle(sizePt = 11.0, color = theme.muted, bold = true, spacing = 0.1)),
+                paragraphs = paragraph(textStyle(sizePt = 11.0, color = theme.muted, bold = true, spacing = 0.1)),
                 content = item.label.uppercase(),
             )
-            self.textBox(
+            textBox(
                 page = page,
                 x = x + inner,
                 y = y + inner + labelHeight,
                 width = tileWidth - inner * 2,
                 height = valueHeight,
-                paragraphs = self.paragraph(textStyle(sizePt = 30.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 30.0, color = theme.accent, bold = true, font = theme.serifFont)),
                 content = item.value,
             )
             val delta = item.delta
@@ -496,13 +494,13 @@ private class OdpBuilder(
                     false -> theme.negative
                     null -> theme.muted
                 }
-                self.textBox(
+                textBox(
                     page = page,
                     x = x + inner,
                     y = y + inner + labelHeight + valueHeight,
                     width = tileWidth - inner * 2,
                     height = 0.7,
-                    paragraphs = self.paragraph(textStyle(sizePt = 12.0, color = deltaColor, bold = true)),
+                    paragraphs = paragraph(textStyle(sizePt = 12.0, color = deltaColor, bold = true)),
                     content = delta,
                 )
             }
@@ -520,29 +518,29 @@ private class OdpBuilder(
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
             val height = textHeight(title, 28.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
                 content = title,
             )
             y += height + 0.35
-            self.rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
+            rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
             y += 0.09 + 0.8
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
             val height = textHeight(subtitle, 16.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
+                paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
                 content = subtitle,
             )
             y += height + 0.7
@@ -558,7 +556,7 @@ private class OdpBuilder(
                 listOf(slide.blocks.take(half), slide.blocks.drop(half))
             }
         }
-        self.rectangle(page, MARGIN_CM + columnWidth + columnGap / 2 - 0.02, y, 0.04, 9.5, theme.border)
+        rectangle(page, MARGIN_CM + columnWidth + columnGap / 2 - 0.02, y, 0.04, 9.5, theme.border)
         columns.forEachIndexed { index, blocks ->
             val x = MARGIN_CM + index * (columnWidth + columnGap)
             paintBlocks(page, blocks, x, y, columnWidth)
@@ -570,29 +568,29 @@ private class OdpBuilder(
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
             val height = textHeight(title, 28.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 28.0, color = theme.accent, bold = true, font = theme.serifFont)),
                 content = title,
             )
             y += height + 0.35
-            self.rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
+            rectangle(page, MARGIN_CM, y, 2.2, 0.09, theme.accent)
             y += 0.09 + 0.8
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
             val height = textHeight(subtitle, 16.0, CONTENT_WIDTH_CM)
-            self.textBox(
+            textBox(
                 page = page,
                 x = MARGIN_CM,
                 y = y,
                 width = CONTENT_WIDTH_CM,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
+                paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
                 content = subtitle,
             )
             y += height + 0.7
@@ -602,23 +600,23 @@ private class OdpBuilder(
 
     private fun paintFooter(page: StringBuilder, number: Int) {
         val y = PAGE_HEIGHT_CM - 1.35
-        self.rectangle(page, MARGIN_CM, y - 0.35, CONTENT_WIDTH_CM, 0.03, theme.border)
-        self.textBox(
+        rectangle(page, MARGIN_CM, y - 0.35, CONTENT_WIDTH_CM, 0.03, theme.border)
+        textBox(
             page = page,
             x = MARGIN_CM,
             y = y,
             width = CONTENT_WIDTH_CM - 3.0,
             height = 0.7,
-            paragraphs = self.paragraph(textStyle(sizePt = 10.0, color = theme.muted)),
+            paragraphs = paragraph(textStyle(sizePt = 10.0, color = theme.muted)),
             content = deck.title,
         )
-        self.textBox(
+        textBox(
             page = page,
             x = PAGE_WIDTH_CM - MARGIN_CM - 3.0,
             y = y,
             width = 3.0,
             height = 0.7,
-            paragraphs = self.paragraph(textStyle(sizePt = 10.0, color = theme.muted, align = "end")),
+            paragraphs = paragraph(textStyle(sizePt = 10.0, color = theme.muted, align = "end")),
             content = number.toString(),
         )
     }
@@ -633,16 +631,17 @@ private class OdpBuilder(
         return cursor
     }
 
-    private fun paintBlock(page: StringBuilder, block: Block, x: Double, y: Double, width: Double): Double = when (block) {
+    private fun paintBlock(page: StringBuilder, block: Block, x: Double, y: Double, width: Double): Double {
+        return when (block) {
         is ParagraphBlock -> {
             val height = textHeight(block.text, 16.0, width)
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = y,
                 width = width,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.ink)),
+                paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.ink)),
                 content = block.text,
             )
             y + height + 0.42
@@ -653,7 +652,7 @@ private class OdpBuilder(
                 "<text:list-item><text:p text:style-name=\"${listItemStyle(block.ordered)}\">${spans(item)}</text:p></text:list-item>"
             }
             val height = block.items.sumOf { textHeight(it, 16.0, width - 0.7) } + block.items.size * 0.12
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = y,
@@ -673,13 +672,13 @@ private class OdpBuilder(
             }
             val text = if (block.numbered) "${block.level}. ${block.text}" else block.text
             val height = textHeight(text, size, width)
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = y,
                 width = width,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = size, color = theme.ink, bold = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = size, color = theme.ink, bold = true, font = theme.serifFont)),
                 content = text,
             )
             y + height + 0.36
@@ -700,22 +699,22 @@ private class OdpBuilder(
                 val tileX = x + index * (tileWidth + gap)
                 roundedRectangle(page, tileX, y, tileWidth, tileHeight, theme.surface, theme.border)
                 val inner = 0.45
-                self.textBox(
+                textBox(
                     page = page,
                     x = tileX + inner,
                     y = y + inner,
                     width = tileWidth - inner * 2,
                     height = 0.65,
-                    paragraphs = self.paragraph(textStyle(sizePt = 11.0, color = theme.muted, bold = true, spacing = 0.1)),
+                    paragraphs = paragraph(textStyle(sizePt = 11.0, color = theme.muted, bold = true, spacing = 0.1)),
                     content = item.label.uppercase(),
                 )
-                self.textBox(
+                textBox(
                     page = page,
                     x = tileX + inner,
                     y = y + inner + 0.65,
                     width = tileWidth - inner * 2,
                     height = textHeight(item.value, 26.0, tileWidth - inner * 2),
-                    paragraphs = self.paragraph(textStyle(sizePt = 26.0, color = theme.accent, bold = true, font = theme.serifFont)),
+                    paragraphs = paragraph(textStyle(sizePt = 26.0, color = theme.accent, bold = true, font = theme.serifFont)),
                     content = item.value,
                 )
             }
@@ -733,36 +732,36 @@ private class OdpBuilder(
                 val labelHeight = textHeight(item.label, 16.0, labelWidth - 0.4)
                 val valueHeight = textHeight(item.value, 16.0, width - labelWidth - 0.4)
                 val rowHeight = max(labelHeight, valueHeight)
-                self.textBox(
+                textBox(
                     page = page,
                     x = x,
                     y = cursor,
                     width = labelWidth - 0.4,
                     height = rowHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft, bold = true)),
+                    paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft, bold = true)),
                     content = item.label,
                 )
-                self.textBox(
+                textBox(
                     page = page,
                     x = x + labelWidth,
                     y = cursor,
                     width = width - labelWidth,
                     height = rowHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.ink)),
+                    paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.ink)),
                     content = item.value,
                 )
                 cursor += rowHeight + 0.15
-                self.rectangle(page, x, cursor, width, 0.02, theme.border)
+                rectangle(page, x, cursor, width, 0.02, theme.border)
                 cursor += 0.15
                 if (!item.hint.isNullOrBlank()) {
                     val hintHeight = textHeight(item.hint, 12.0, width)
-                    self.textBox(
+                    textBox(
                         page = page,
                         x = x,
                         y = cursor,
                         width = width,
                         height = hintHeight,
-                        paragraphs = self.paragraph(textStyle(sizePt = 12.0, color = theme.muted)),
+                        paragraphs = paragraph(textStyle(sizePt = 12.0, color = theme.muted)),
                         content = item.hint,
                     )
                     cursor += hintHeight + 0.15
@@ -775,24 +774,24 @@ private class OdpBuilder(
             val textWidth = width - 0.9
             val height = textHeight(block.text, 20.0, textWidth)
             val attributionHeight = if (block.attribution.isNullOrBlank()) 0.0 else textHeight(block.attribution, 13.0, textWidth)
-            self.rectangle(page, x, y, 0.13, height + attributionHeight, theme.accent)
-            self.textBox(
+            rectangle(page, x, y, 0.13, height + attributionHeight, theme.accent)
+            textBox(
                 page = page,
                 x = x + 0.9,
                 y = y,
                 width = textWidth,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 20.0, color = theme.ink, italic = true, font = theme.serifFont)),
+                paragraphs = paragraph(textStyle(sizePt = 20.0, color = theme.ink, italic = true, font = theme.serifFont)),
                 content = block.text,
             )
             if (attributionHeight > 0) {
-                self.textBox(
+                textBox(
                     page = page,
                     x = x + 0.9,
                     y = y + height + 0.25,
                     width = textWidth,
                     height = attributionHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 13.0, color = theme.muted)),
+                    paragraphs = paragraph(textStyle(sizePt = 13.0, color = theme.muted)),
                     content = "— ${block.attribution}",
                 )
             }
@@ -802,27 +801,27 @@ private class OdpBuilder(
         is CodeBlock -> {
             val inner = 0.55
             val height = textHeight(block.text, 13.0, width - inner * 2) + inner * 2
-            self.rectangle(page, x, y, width, height, theme.surfaceAlt, theme.border)
+            rectangle(page, x, y, width, height, theme.surfaceAlt, theme.border)
             var cursor = y + inner - 0.15
             if (!block.language.isNullOrBlank()) {
-                self.textBox(
+                textBox(
                     page = page,
                     x = x + inner,
                     y = cursor,
                     width = width - inner * 2,
                     height = 0.6,
-                    paragraphs = self.paragraph(textStyle(sizePt = 10.0, color = theme.muted, bold = true, spacing = 0.1)),
+                    paragraphs = paragraph(textStyle(sizePt = 10.0, color = theme.muted, bold = true, spacing = 0.1)),
                     content = block.language.uppercase(),
                 )
                 cursor += 0.5
             }
-            self.textBox(
+            textBox(
                 page = page,
                 x = x + inner,
                 y = cursor,
                 width = width - inner * 2,
                 height = height - inner * 2,
-                paragraphs = self.paragraph(textStyle(sizePt = 13.0, color = theme.ink, font = theme.monoFont)),
+                paragraphs = paragraph(textStyle(sizePt = 13.0, color = theme.ink, font = theme.monoFont)),
                 content = block.text,
             )
             y + height + 0.45
@@ -834,34 +833,34 @@ private class OdpBuilder(
             val titleHeight = if (block.title.isNullOrBlank()) 0.0 else textHeight(block.title, 16.0, width - inner * 2)
             val height = textHeight(block.text, 16.0, width - inner * 2) + titleHeight + inner * 2
             roundedRectangle(page, x, y, width, height, Colors.lighten(accent, 0.88), Colors.lighten(accent, 0.55))
-            self.rectangle(page, x, y, 0.16, height, accent)
+            rectangle(page, x, y, 0.16, height, accent)
             var cursor = y + inner - 0.1
             if (titleHeight > 0) {
-                self.textBox(
+                textBox(
                     page = page,
                     x = x + inner,
                     y = cursor,
                     width = width - inner * 2,
                     height = titleHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = Colors.darken(accent, 0.25), bold = true)),
+                    paragraphs = paragraph(textStyle(sizePt = 16.0, color = Colors.darken(accent, 0.25), bold = true)),
                     content = block.title,
                 )
                 cursor += titleHeight
             }
-            self.textBox(
+            textBox(
                 page = page,
                 x = x + inner,
                 y = cursor,
                 width = width - inner * 2,
                 height = height - inner * 2,
-                paragraphs = self.paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
+                paragraphs = paragraph(textStyle(sizePt = 16.0, color = theme.inkSoft)),
                 content = block.text,
             )
             y + height + 0.45
         }
 
         is DividerBlock -> {
-            self.rectangle(page, x, y + 0.2, width, 0.02, theme.border)
+            rectangle(page, x, y + 0.2, width, 0.02, theme.border)
             y + 0.7
         }
 
@@ -870,6 +869,7 @@ private class OdpBuilder(
         is PageBreakBlock -> y
 
         is TocBlock -> y
+    }
     }
 
     private fun paintTable(page: StringBuilder, block: TableBlock, x: Double, y: Double, width: Double): Double {
@@ -971,8 +971,8 @@ private class OdpBuilder(
         }
         val fixed = usable.map { max(1.5, it) }
         val sum = fixed.sum()
-        val scaled = fixed.map { it / sum * width }
-        scaled[0] += width - scaled.sum()
+        val scaled = fixed.map { it / sum * width }.toMutableList()
+        if (scaled.isNotEmpty()) scaled[0] = scaled[0] + (width - scaled.sum())
         return scaled
     }
 
@@ -980,13 +980,13 @@ private class OdpBuilder(
         var cursor = y
         if (!block.title.isNullOrBlank()) {
             val height = textHeight(block.title, 13.0, width)
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = cursor,
                 width = width,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 13.0, color = theme.ink, bold = true)),
+                paragraphs = paragraph(textStyle(sizePt = 13.0, color = theme.ink, bold = true)),
                 content = block.title,
             )
             cursor += height + 0.3
@@ -1027,7 +1027,7 @@ private class OdpBuilder(
         val barWidth = max(0.2, (groupWidth * 0.66 - barGap * (barCount - 1)) / barCount)
         val colors = chartPalette(block.series.size)
 
-        self.rectangle(page, x, baseline, width, 0.02, theme.border)
+        rectangle(page, x, baseline, width, 0.02, theme.border)
         categories.forEachIndexed { index, category ->
             val groupStart = x + groupWidth * index + (groupWidth - (barWidth * barCount + barGap * (barCount - 1))) / 2
             block.series.forEachIndexed { seriesIndex, series ->
@@ -1035,24 +1035,24 @@ private class OdpBuilder(
                 val barHeight = (abs(value) / maxValue) * (plotHeight - valueHeight)
                 val barX = groupStart + seriesIndex * (barWidth + barGap)
                 val barY = baseline - barHeight
-                self.rectangle(page, barX, barY, barWidth, barHeight, colors[seriesIndex])
-                self.textBox(
+                rectangle(page, barX, barY, barWidth, barHeight, colors[seriesIndex])
+                textBox(
                     page = page,
                     x = barX - barWidth,
                     y = max(y, barY - valueHeight),
                     width = barWidth * 3,
                     height = valueHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 9.0, color = theme.muted, align = "center")),
+                    paragraphs = paragraph(textStyle(sizePt = 9.0, color = theme.muted, align = "center")),
                     content = formatValue(value),
                 )
             }
-            self.textBox(
+            textBox(
                 page = page,
                 x = x + groupWidth * index,
                 y = baseline + 0.15,
                 width = groupWidth,
                 height = labelHeight,
-                paragraphs = self.paragraph(textStyle(sizePt = 10.0, color = theme.muted, align = "center")),
+                paragraphs = paragraph(textStyle(sizePt = 10.0, color = theme.muted, align = "center")),
                 content = category,
             )
         }
@@ -1073,13 +1073,13 @@ private class OdpBuilder(
 
         categories.forEachIndexed { index, category ->
             val rowTop = y + index * rowHeight
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = rowTop,
                 width = labelWidth - 0.3,
                 height = rowHeight - 0.3,
-                paragraphs = self.paragraph(textStyle(sizePt = 10.0, color = theme.inkSoft, align = "end")),
+                paragraphs = paragraph(textStyle(sizePt = 10.0, color = theme.inkSoft, align = "end")),
                 content = category,
             )
             block.series.forEachIndexed { seriesIndex, series ->
@@ -1087,14 +1087,14 @@ private class OdpBuilder(
                 val barHeight = max(0.25, ((rowHeight - 0.4) / block.series.size))
                 val barY = rowTop + 0.15 + seriesIndex * barHeight
                 val barWidth = max(0.06, (abs(value) / maxValue) * plotWidth)
-                self.rectangle(page, x + labelWidth, barY, barWidth, barHeight - 0.08, colors[seriesIndex])
-                self.textBox(
+                rectangle(page, x + labelWidth, barY, barWidth, barHeight - 0.08, colors[seriesIndex])
+                textBox(
                     page = page,
                     x = x + labelWidth + barWidth + 0.2,
                     y = barY - 0.08,
                     width = 2.0,
                     height = barHeight,
-                    paragraphs = self.paragraph(textStyle(sizePt = 9.0, color = theme.muted)),
+                    paragraphs = paragraph(textStyle(sizePt = 9.0, color = theme.muted)),
                     content = formatValue(value),
                 )
             }
@@ -1156,13 +1156,13 @@ private class OdpBuilder(
         var cursor = y + pictureHeight + 0.2
         if (!block.caption.isNullOrBlank()) {
             val height = textHeight(block.caption, 12.0, width)
-            self.textBox(
+            textBox(
                 page = page,
                 x = x,
                 y = cursor,
                 width = width,
                 height = height,
-                paragraphs = self.paragraph(textStyle(sizePt = 12.0, color = theme.muted, align = "center")),
+                paragraphs = paragraph(textStyle(sizePt = 12.0, color = theme.muted, align = "center")),
                 content = block.caption,
             )
             cursor += height
@@ -1316,9 +1316,9 @@ private class OdpBuilder(
     private val listStyles = mutableSetOf<String>()
     private val itemStyles = mutableMapOf<String, String>()
 
-    private fun self.paragraph(styleName: String, verticalAlign: String = "top"): String = styleName
+    private fun paragraph(styleName: String, verticalAlign: String = "top"): String = styleName
 
-    private fun self.textBox(
+    private fun textBox(
         page: StringBuilder,
         x: Double,
         y: Double,
@@ -1328,7 +1328,6 @@ private class OdpBuilder(
         content: String?,
         verticalAlign: String = "top",
     ) {
-{
         page.append("<draw:frame draw:style-name=\"${graphicStyle(verticalAlign = verticalAlign)}\" ")
         page.append("svg:x=\"${cm(x)}\" svg:y=\"${cm(y)}\" svg:width=\"${cm(width)}\" svg:height=\"${cm(height)}\">")
         page.append("<draw:text-box>")
@@ -1340,7 +1339,7 @@ private class OdpBuilder(
         page.append("</draw:text-box></draw:frame>")
     }
 
-    private fun self.rectangle(
+    private fun rectangle(
         page: StringBuilder,
         x: Double,
         y: Double,
