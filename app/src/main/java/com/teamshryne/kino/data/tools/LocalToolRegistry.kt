@@ -43,13 +43,17 @@ class LocalToolRegistry(
     private val pdfLimits: () -> PdfLimits = { PdfLimits() },
 ) {
     suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
-        val spec = toolSpec(name) ?: error("Unknown tool: $name")
+        val canonicalName = canonicalToolName(name)
+        if (canonicalName.startsWith("create_") && !arguments.has("format")) {
+            inferredFormat(name)?.let { arguments.put("format", it) }
+        }
+        val spec = toolSpec(canonicalName) ?: error("Unknown tool: $name")
         val keys = arguments.keys().asSequence().toSet()
         require(keys.all { it in spec.allowedArguments }) { "Unexpected argument for $name." }
         fun stringArgument(key: String, required: Boolean) {
             if (required || arguments.has(key)) require(arguments.opt(key) is String) { "$key must be a string." }
         }
-        when (name) {
+        when (canonicalName) {
             "calculator" -> stringArgument("expression", true)
             "date_time" -> stringArgument("timezone", false)
             "search_chat" -> {
@@ -107,14 +111,14 @@ class LocalToolRegistry(
                 if (arguments.has("tab_id")) stringArgument("tab_id", false)
             }
         }
-        val result = when (name) {
-        "calculator" -> LocalToolResult(name, "Used calculator", Calculator.evaluate(arguments.getString("expression")))
+        val result = when (canonicalName) {
+        "calculator" -> LocalToolResult(canonicalName, "Used calculator", Calculator.evaluate(arguments.getString("expression")))
         "date_time" -> {
             val zone = arguments.optString("timezone").ifBlank { ZoneId.systemDefault().id }
             val date = ZonedDateTime.now(ZoneId.of(zone))
-            LocalToolResult(name, "Checked date and time", date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy · HH:mm:ss z (VV)")))
+            LocalToolResult(canonicalName, "Checked date and time", date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy · HH:mm:ss z (VV)")))
         }
-        "search_chat" -> LocalToolResult(name, "Searched this chat", search(chatId, arguments))
+        "search_chat" -> LocalToolResult(canonicalName, "Searched this chat", search(chatId, arguments))
         "html_to_pdf" -> {
             val title = arguments.optString("title", "Kino document").take(120).ifBlank { "Kino document" }
             val limits = pdfLimits().sanitized()
@@ -137,7 +141,7 @@ class LocalToolRegistry(
                 listOf(html) to false
             }
             val filename = renderPdf(title, pages, paged)
-            LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).put("pages", pages.size).toString())
+            LocalToolResult(canonicalName, "Created PDF", JSONObject().put("filename", filename).put("title", title).put("pages", pages.size).toString())
         }
         "create_document", "create_spreadsheet", "create_presentation", "create_data_file" -> {
             val executor = requireNotNull(office) { "Office export is not available." }
@@ -149,7 +153,7 @@ class LocalToolRegistry(
             val executor = requireNotNull(office) { "Office export is not available." }
             executor.help(arguments.optString("topic").ifBlank { null })
         }
-        "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
+        "browser" -> LocalToolResult(canonicalName, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
         else -> error("Unknown tool: $name")
         }
         return result
@@ -242,8 +246,51 @@ class LocalToolRegistry(
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
-        fun hasTool(name: String): Boolean = catalog.any { it.name == name }
-        fun activityLabel(name: String): String = when (name) {
+        fun hasTool(name: String): Boolean = catalog.any { it.name == canonicalToolName(name) }
+
+        /**
+         * Maps the tool names models reach for onto the canonical ones.
+         *
+         * The office tools are split by family, but models often ask for
+         * "create_word" or "office_document". The alias table keeps those
+         * working, and remembers the format the alias implies so the file
+         * still comes out in the shape the user asked for.
+         */
+        private data class Alias(val tool: String, val format: String?)
+
+        private val aliases: Map<String, Alias> = mapOf(
+            "office_document" to Alias("create_document", null),
+            "office" to Alias("create_document", null),
+            "create_office" to Alias("create_document", null),
+            "office_file" to Alias("create_document", null),
+            "document" to Alias("create_document", null),
+            "create_docx" to Alias("create_document", "docx"),
+            "create_word" to Alias("create_document", "docx"),
+            "word_document" to Alias("create_document", "docx"),
+            "word" to Alias("create_document", "docx"),
+            "create_excel" to Alias("create_spreadsheet", "xlsx"),
+            "create_xlsx" to Alias("create_spreadsheet", "xlsx"),
+            "spreadsheet" to Alias("create_spreadsheet", "xlsx"),
+            "excel" to Alias("create_spreadsheet", "xlsx"),
+            "sheet" to Alias("create_spreadsheet", "xlsx"),
+            "create_ppt" to Alias("create_presentation", "pptx"),
+            "create_pptx" to Alias("create_presentation", "pptx"),
+            "presentation" to Alias("create_presentation", "pptx"),
+            "powerpoint" to Alias("create_presentation", "pptx"),
+            "deck" to Alias("create_presentation", "pptx"),
+            "slides" to Alias("create_presentation", "pptx"),
+            "data_file" to Alias("create_data_file", null),
+        )
+
+        /** The canonical tool name for [name], or [name] itself when it is already canonical. */
+        fun canonicalToolName(name: String): String {
+            val key = name.trim().lowercase()
+            return aliases[key]?.tool ?: key
+        }
+
+        /** The format an alias implies, when the alias implies one. */
+        fun inferredFormat(name: String): String? = aliases[name.trim().lowercase()]?.format
+        fun activityLabel(name: String): String = when (canonicalToolName(name)) {
             "calculator" -> "Used calculator"
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
@@ -256,9 +303,9 @@ class LocalToolRegistry(
             "browser" -> "Browsed website"
             else -> "Used tool"
         }
-        private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == name }
+        private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == canonicalToolName(name) }
 
-        fun progress(name: String, arguments: JSONObject): Pair<String, String> = when (name) {
+        fun progress(name: String, arguments: JSONObject): Pair<String, String> = when (canonicalToolName(name)) {
             "calculator" -> "Using calculator" to "Evaluating ${arguments.optString("expression").take(80)}"
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"

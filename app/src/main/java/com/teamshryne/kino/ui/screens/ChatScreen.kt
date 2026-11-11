@@ -629,8 +629,6 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 private val OFFICE_FILE_TOOLS = setOf("create_document", "create_spreadsheet", "create_presentation", "create_data_file")
 
 /** Card for a generated office file, with open and share actions. */
