@@ -860,7 +860,9 @@ private class SlidePainter(
         return cursor
     }
 
-    private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int { return when (block) {
+    private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int {
+        val self = this
+        return when (block) {
         is ParagraphBlock -> {
             val height = self.measure(block.text, SIZE_BODY / 100.0, width)
             self.textBox(x, y, width, height, self.paragraph(self.runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))
