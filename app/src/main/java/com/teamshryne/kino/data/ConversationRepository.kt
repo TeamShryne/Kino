@@ -20,6 +20,7 @@ interface ConversationRepository {
     suspend fun saveProviderState(state: ChatProviderState)
     suspend fun chatForSession(sessionId: String): String?
     suspend fun renameChat(chatId: String, title: String)
+    suspend fun setChatPinned(chatId: String, pinned: Boolean)
     suspend fun deleteChat(chatId: String)
 }
 
@@ -36,6 +37,7 @@ class LocalConversationRepository(private val database: KinoDatabase) : Conversa
     override suspend fun saveProviderState(state: ChatProviderState) = withContext(Dispatchers.IO) { database.saveProviderState(state) }
     override suspend fun chatForSession(sessionId: String) = withContext(Dispatchers.IO) { database.chatForSession(sessionId) }
     override suspend fun renameChat(chatId: String, title: String) = withContext(Dispatchers.IO) { database.renameChat(chatId, title); Unit }
+    override suspend fun setChatPinned(chatId: String, pinned: Boolean) = withContext(Dispatchers.IO) { database.setChatPinned(chatId, pinned); Unit }
     override suspend fun deleteChat(chatId: String) = withContext(Dispatchers.IO) {
         database.deleteChat(chatId)
         Unit

@@ -1118,6 +1118,30 @@ class KinoViewModel(
             _chats.value = conversations.chats()
         }
 
+    /** Renames a chat locally and keeps the linked DeepSeek session title in sync. */
+    fun renameChat(id: String, title: String) = viewModelScope.launch {
+        val clean = title.replace('\n', ' ').trim().take(80)
+        if (clean.isEmpty()) return@launch
+        conversations.renameChat(id, clean)
+        _chats.value = conversations.chats()
+        val sessionId = conversations.providerState(id)?.sessionId
+        if (!sessionId.isNullOrBlank() && credentialStore.load() != null) {
+            runCatching { provider.updateSessionTitle(sessionId, clean) }
+                .onFailure { _providerError.value = it.message?.take(240) ?: "Could not rename the DeepSeek chat." }
+        }
+    }
+
+    /** Pins or unpins a chat and mirrors the state onto the linked DeepSeek session. */
+    fun setChatPinned(id: String, pinned: Boolean) = viewModelScope.launch {
+        conversations.setChatPinned(id, pinned)
+        _chats.value = conversations.chats()
+        val sessionId = conversations.providerState(id)?.sessionId
+        if (!sessionId.isNullOrBlank() && credentialStore.load() != null) {
+            runCatching { provider.setPinned(listOf(sessionId), pinned) }
+                .onFailure { _providerError.value = it.message?.take(240) ?: "Could not update the pinned chat." }
+        }
+    }
+
     fun deleteChat(id: String) = viewModelScope.launch {
         generations[id]?.let { generation ->
             generation.cancelled.set(true)

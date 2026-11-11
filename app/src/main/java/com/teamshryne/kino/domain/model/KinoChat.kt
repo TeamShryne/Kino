@@ -5,6 +5,8 @@ data class KinoChat(
     val title: String,
     val updatedAt: Long,
     val preview: String,
+    val pinned: Boolean = false,
+    val hasFiles: Boolean = false,
 )
 
 data class KinoMessage(

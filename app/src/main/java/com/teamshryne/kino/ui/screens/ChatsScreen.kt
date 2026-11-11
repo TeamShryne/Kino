@@ -1,7 +1,10 @@
 package com.teamshryne.kino.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,30 +19,48 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,7 +68,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.domain.model.KinoChat
 import com.teamshryne.kino.ui.components.EmptyPanel
-import com.teamshryne.kino.ui.components.relativeTime
+import com.teamshryne.kino.ui.components.compactRelativeTime
+import java.util.Calendar
+import kotlin.math.absoluteValue
+
+private enum class ChatFilter(val label: String) {
+    All("All"),
+    Pinned("Pinned"),
+    Files("Files"),
+    Today("Today"),
+}
+
+/** Tinted tiles behind each chat, so the list reads like the reference home screen. */
+private val tilePalette = listOf(
+    Color(0xFF2E2447) to Color(0xFFB79CFF),
+    Color(0xFF17352A) to Color(0xFF74D6A8),
+    Color(0xFF1B2C48) to Color(0xFF8AB4F8),
+    Color(0xFF3A2136) to Color(0xFFF49ACB),
+    Color(0xFF12333A) to Color(0xFF6ED0D8),
+    Color(0xFF3A2A14) to Color(0xFFE3AC6B),
+)
 
 @Composable
 fun ChatsScreen(
@@ -56,55 +96,104 @@ fun ChatsScreen(
     onQuery: (String) -> Unit,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onSettings: () -> Unit,
+    onRename: (String, String) -> Unit,
+    onPin: (String, Boolean) -> Unit,
+    onNewChat: () -> Unit,
 ) {
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var filter by rememberSaveable { mutableStateOf(ChatFilter.All) }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingText by rememberSaveable { mutableStateOf("") }
 
-    Column(Modifier.fillMaxSize()) {
+    val visible = remember(chats, query, filter) {
+        chats.filter { chat ->
+            val matchesQuery = query.isBlank() ||
+                chat.title.contains(query, ignoreCase = true) ||
+                chat.preview.contains(query, ignoreCase = true)
+            val matchesFilter = when (filter) {
+                ChatFilter.All -> true
+                ChatFilter.Pinned -> chat.pinned
+                ChatFilter.Files -> chat.hasFiles
+                ChatFilter.Today -> isToday(chat.updatedAt)
+            }
+            matchesQuery && matchesFilter
+        }
+    }
+
+    fun startEditing(chat: KinoChat) {
+        editingId = chat.id
+        editingText = chat.title
+    }
+
+    fun commitEditing(id: String) {
+        if (editingId != id) return
+        val title = editingText.trim()
+        val original = chats.firstOrNull { it.id == id }?.title
+        editingId = null
+        if (title.isNotEmpty() && title != original) onRename(id, title)
+    }
+
+    if (editingId != null) BackHandler { editingId = null }
+
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+    ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 2.dp),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Kino", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = {
-                val wasOpen = searchOpen
-                searchOpen = !wasOpen
-                if (wasOpen) onQuery("")
-            }) {
-                Icon(if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search, if (searchOpen) "Close search" else "Search chats", modifier = Modifier.size(21.dp))
-            }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Rounded.Refresh, "Refresh chats", modifier = Modifier.size(21.dp))
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Rounded.Settings, "Settings", modifier = Modifier.size(21.dp))
+            Icon(
+                Icons.Rounded.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(7.dp))
+            Text("Kino", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Chats",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.8).sp,
+                modifier = Modifier.weight(1f),
+            )
+            NewChatButton(onNewChat)
+        }
+
+        ChatSearchField(query = query, onQuery = onQuery)
+
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            ChatFilter.entries.forEach { option ->
+                FilterChip(option.label, option == filter) { filter = option }
             }
         }
 
-        AnimatedVisibility(searchOpen || query.isNotBlank()) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQuery,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
-                placeholder = { Text("Search chats") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(19.dp)) },
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Recent",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${visible.size} chats",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        Text(
-            "CHATS",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            letterSpacing = 1.1.sp,
-            modifier = Modifier.padding(start = 22.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
-        )
-
-        if (chats.isEmpty()) {
+        if (visible.isEmpty()) {
             EmptyPanel(
                 title = if (query.isBlank()) "No conversations yet" else "No matching chats",
                 subtitle = if (query.isBlank()) "Start a chat to see it here." else "Try another search.",
@@ -113,23 +202,27 @@ fun ChatsScreen(
                 modifier = Modifier.weight(1f),
             )
         } else {
-            Surface(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = 20.dp),
             ) {
-                LazyColumn(
-                    contentPadding = PaddingValues(vertical = 3.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    itemsIndexed(chats, key = { _, chat -> chat.id }) { index, chat ->
-                        ChatRow(chat, onOpen, onDelete)
-                        if (index < chats.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 16.dp, end = 14.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                            )
-                        }
+                itemsIndexed(visible, key = { _, chat -> chat.id }) { index, chat ->
+                    ChatRow(
+                        chat = chat,
+                        editing = editingId == chat.id,
+                        editingText = editingText,
+                        onEditingTextChange = { editingText = it },
+                        onStartEditing = { startEditing(chat) },
+                        onCommitEditing = { commitEditing(chat.id) },
+                        onOpen = { onOpen(chat.id) },
+                        onDelete = { onDelete(chat.id) },
+                        onPin = { onPin(chat.id, it) },
+                    )
+                    if (index < visible.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 20.dp, end = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        )
                     }
                 }
             }
@@ -138,29 +231,243 @@ fun ChatsScreen(
 }
 
 @Composable
-private fun ChatRow(chat: KinoChat, onOpen: (String) -> Unit, onDelete: (String) -> Unit) {
-    var menuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().clickable { onOpen(chat.id) }
-            .padding(start = 17.dp, top = 13.dp, bottom = 13.dp, end = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun NewChatButton(onNewChat: () -> Unit) {
+    Surface(
+        modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onNewChat),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primary,
     ) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                Text(relativeTime(chat.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(chat.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier.padding(start = 13.dp, end = 15.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.Add,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "New chat",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
         }
-        Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Rounded.MoreVert, "Chat actions", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(text = { Text("Delete") }, onClick = { menuOpen = false; onDelete(chat.id) })
+    }
+}
+
+@Composable
+private fun ChatSearchField(query: String, onQuery: (String) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, top = 18.dp).height(46.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                decorationBox = { inner ->
+                    Box {
+                        if (query.isEmpty()) {
+                            Text(
+                                "Search your chats",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQuery("") }, modifier = Modifier.size(26.dp)) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Clear search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
+        shape = RoundedCornerShape(50),
+        color = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ChatRow(
+    chat: KinoChat,
+    editing: Boolean,
+    editingText: String,
+    onEditingTextChange: (String) -> Unit,
+    onStartEditing: () -> Unit,
+    onCommitEditing: () -> Unit,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    onPin: (Boolean) -> Unit,
+) {
+    var menuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(editing) { if (editing) focusRequester.requestFocus() }
+
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(enabled = !editing) { onOpen() }
+            .padding(start = 20.dp, end = 8.dp, top = 13.dp, bottom = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChatGlyphTile(chat)
+        Spacer(Modifier.width(12.dp))
+        Row(
+            Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (editing) {
+                BasicTextField(
+                    value = editingText,
+                    onValueChange = onEditingTextChange,
+                    modifier = Modifier.weight(1f)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { if (!it.isFocused) onCommitEditing() },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.titleSmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onCommitEditing() }),
+                )
+            } else {
+                if (chat.pinned) {
+                    Icon(
+                        Icons.Rounded.PushPin,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(
+                    chat.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).clickable { onStartEditing() },
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                compactRelativeTime(chat.updatedAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Rounded.MoreVert,
+                    contentDescription = "Chat actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                    onClick = { menuOpen = false; onStartEditing() },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (chat.pinned) "Unpin" else "Pin") },
+                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
+                    onClick = { menuOpen = false; onPin(!chat.pinned) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
+                    onClick = { menuOpen = false; onDelete() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatGlyphTile(chat: KinoChat) {
+    val (background, foreground) = remember(chat.id) { tileColors(chat) }
+    val glyph = remember(chat.id, chat.title, chat.preview) { chatGlyph(chat) }
+    Box(
+        Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(background),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (glyph != null) {
+            Icon(glyph, contentDescription = null, tint = foreground, modifier = Modifier.size(19.dp))
+        } else {
+            Text(
+                chat.title.trim().take(1).uppercase(),
+                color = foreground,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private fun tileColors(chat: KinoChat): Pair<Color, Color> =
+    tilePalette[chat.id.hashCode().absoluteValue % tilePalette.size]
+
+private fun chatGlyph(chat: KinoChat): ImageVector? {
+    val text = "${chat.title} ${chat.preview}".lowercase()
+    return when {
+        "pdf" in text -> Icons.Rounded.PictureAsPdf
+        listOf("doc", "word", "ppt", "slide", "excel", "sheet", "report", "file").any { it in text } -> Icons.Rounded.Description
+        listOf("code", "kotlin", "python", "javascript").any { it in text } -> Icons.Rounded.Code
+        listOf("search", "browse", "web").any { it in text } -> Icons.Rounded.TravelExplore
+        listOf("hello", "hey", "hi ").any { it in text } -> Icons.Rounded.ChatBubbleOutline
+        else -> null
+    }
+}
+
+private fun isToday(time: Long): Boolean {
+    val now = Calendar.getInstance()
+    val then = Calendar.getInstance().apply { timeInMillis = time }
+    return now.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
+        now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR)
 }

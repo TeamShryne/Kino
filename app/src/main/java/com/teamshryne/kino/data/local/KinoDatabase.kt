@@ -12,7 +12,7 @@ import com.teamshryne.kino.domain.model.ToolActivity
 import java.util.UUID
 
 /** Local schema for conversations and their ordered message/tool activity timeline. */
-class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 3) {
+class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context, "kino.db", null, 4) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -23,7 +23,8 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             id TEXT PRIMARY KEY NOT NULL,
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            pinned INTEGER NOT NULL DEFAULT 0
         )""".trimIndent())
         db.execSQL("""CREATE TABLE messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,13 +115,15 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
             createProviderStateTable(db)
         }
         if (oldVersion == 2) db.execSQL("ALTER TABLE chat_provider_state ADD COLUMN tool_protocol_version INTEGER NOT NULL DEFAULT 0")
+        if (oldVersion < 4) db.execSQL("ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
     }
 
     fun listChats(): List<KinoChat> = readableDatabase.rawQuery(
-        """SELECT c.id, c.title, c.updated_at,
+        """SELECT c.id, c.title, c.updated_at, c.pinned,
+            EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=c.id AND m.metadata LIKE '%"files"%'),
             COALESCE((SELECT CASE WHEN m.role='tool' THEN 'Used ' || m.tool_name ELSE m.text END
               FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1), 'New conversation')
-            FROM chats c ORDER BY c.updated_at DESC""".trimIndent(), null,
+            FROM chats c ORDER BY c.pinned DESC, c.updated_at DESC""".trimIndent(), null,
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toChat()) } }
 
     fun listMessages(chatId: String): List<KinoMessage> = readableDatabase.rawQuery(
@@ -208,7 +211,19 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
         "id=?", arrayOf(chatId),
     )
 
-    private fun Cursor.toChat() = KinoChat(getString(0), getString(1), getLong(2), getString(3))
+    fun setChatPinned(chatId: String, pinned: Boolean): Int = writableDatabase.update(
+        "chats", ContentValues().apply { put("pinned", if (pinned) 1 else 0) },
+        "id=?", arrayOf(chatId),
+    )
+
+    private fun Cursor.toChat() = KinoChat(
+        id = getString(0),
+        title = getString(1),
+        updatedAt = getLong(2),
+        preview = getString(5),
+        pinned = getInt(3) != 0,
+        hasFiles = getInt(4) != 0,
+    )
 
     private fun Cursor.toMessage(): KinoMessage {
         val toolName = nullableString(5)

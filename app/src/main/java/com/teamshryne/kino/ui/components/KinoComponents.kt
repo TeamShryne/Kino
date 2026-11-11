@@ -65,3 +65,14 @@ fun relativeTime(time: Long): String {
         else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(time))
     }
 }
+
+/** Short timestamp for dense list rows, e.g. "4 min" or "17 hr". */
+fun compactRelativeTime(time: Long): String {
+    val elapsed = (System.currentTimeMillis() - time).coerceAtLeast(0)
+    return when {
+        elapsed < 60_000 -> "now"
+        elapsed < 3_600_000 -> "${elapsed / 60_000} min"
+        elapsed < 86_400_000 -> "${elapsed / 3_600_000} hr"
+        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(time))
+    }
+}
