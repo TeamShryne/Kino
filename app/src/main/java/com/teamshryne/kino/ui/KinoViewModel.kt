@@ -18,8 +18,8 @@ import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
 import com.teamshryne.kino.data.tools.HtmlPdfRenderer
-import com.teamshryne.kino.data.tools.KinoOfficeClient
 import com.teamshryne.kino.data.tools.LocalToolRegistry
+import com.teamshryne.kino.data.tools.OfficeToolExecutor
 import com.teamshryne.kino.data.tools.ToolCallProtocol
 import com.teamshryne.kino.domain.model.ChatProviderState
 import com.teamshryne.kino.domain.model.KinoChat
@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val MAX_THINKING_TRACE_CHARS = 1_200
 private const val MAX_COMPLETION_ATTEMPTS = 3
+private const val MAX_MALFORMED_TOOL_RETRIES = 2
 private const val COMPLETION_RETRY_DELAY_MS = 3_000L
 private const val RATE_LIMIT_RETRY_DELAY_MS = 30_000L
 
@@ -82,16 +83,20 @@ class KinoViewModel(
         maxPageChars = _pdfMaxPageKb.value * 1024,
         maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
     )
-    private val officeClient = KinoOfficeClient(application)
+    private val officeExecutor = OfficeToolExecutor(application) { title, html, geometry, decorations ->
+        val fileName = com.teamshryne.kino.office.OfficeBuilder.fileName(title, com.teamshryne.kino.office.OfficeFormat.PDF)
+        val output = File(application.filesDir, "office-exports/$fileName")
+        HtmlPdfRenderer(application, currentPdfLimits()).createFromHtml(title, html, geometry, decorations, output)
+    }
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
         pdfLimits = { currentPdfLimits() },
+        office = officeExecutor,
         browse = { arguments ->
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
         },
-        renderOffice = { arguments -> officeClient.render(arguments) },
     )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())
@@ -586,6 +591,7 @@ class KinoViewModel(
                     else -> body
                 }
                 var toolCalls = 0
+                var malformedRetries = 0
                 while (true) {
                     val responseMessageCheckpoint = AtomicLong(parent)
                     lastResponseMessageCheckpoint = responseMessageCheckpoint
@@ -706,7 +712,28 @@ class KinoViewModel(
                     val call = ToolCallProtocol.parse(rawTurn)
                     if (call == null) {
                         pendingToolId?.let { finishLocalTool(it, "Failed", "The model returned an invalid tool request.") }
-                        setLiveText(chatId, if (rawTurn.trim().startsWith(ToolCallProtocol.OPEN)) {
+                        // The model meant to call a tool but the request was
+                        // malformed. Tell it what was wrong and let it try
+                        // again rather than ending the reply with an error.
+                        if (ToolCallProtocol.looksLikeToolCall(rawTurn) && malformedRetries < MAX_MALFORMED_TOOL_RETRIES) {
+                            malformedRetries++
+                            // Keep anything the model wrote before the marker;
+                            // it is the reply so far and should not be lost.
+                            val preToolMessage = ToolCallProtocol.visibleText(rawTurn).trim()
+                            if (preToolMessage.isNotBlank()) {
+                                val metadata = session.takeIf { it.isNotBlank() && parent > 0 }?.let {
+                                    JSONObject().put("session_id", session).put("message_id", parent).toString()
+                                }
+                                pendingPreludeId = updateAssistantBeforeTool(chatId, pendingToolId, pendingPreludeId, preToolMessage, metadata)
+                            }
+                            setLiveText(chatId, "")
+                            nextPrompt = ToolCallProtocol.malformedRequestPrompt(
+                                "the marker was not followed by one valid JSON object.",
+                            )
+                            toolCalls++
+                            continue
+                        }
+                        setLiveText(chatId, if (ToolCallProtocol.looksLikeToolCall(rawTurn)) {
                             "I couldn't read the tool request. Please try again."
                         } else rawTurn)
                         break
@@ -1027,20 +1054,26 @@ class KinoViewModel(
                         "USER" -> if (response.isNotBlank()) {
                             val prompt = response.toString()
                             if (ToolCallProtocol.hasPromptPrelude(prompt)) remoteToolProtocolVersion = 1
-                            val toolResult = ToolCallProtocol.parseResultPrompt(prompt)
-                            if (toolResult != null && pendingRemoteToolCall?.name == toolResult.name) {
-                                remoteToolProtocolVersion = 1
-                                conversations.appendAgentEvent(
-                                    localId,
-                                    MessageRole.TOOL,
-                                    LocalToolRegistry.activityLabel(toolResult.name),
-                                    ToolActivity(toolResult.name, if (toolResult.succeeded) "Done" else "Failed", toolResult.output),
-                                    toolResult.name,
-                                )
+                            // The feedback Kino sent after an unreadable tool
+                            // request is internal; it is not a user message.
+                            if (ToolCallProtocol.isMalformedRequestPrompt(prompt)) {
                                 pendingRemoteToolCall = null
                             } else {
-                                pendingRemoteToolCall = null
-                                conversations.sendUserMessage(localId, ToolCallProtocol.stripPromptPrelude(prompt))
+                                val toolResult = ToolCallProtocol.parseResultPrompt(prompt)
+                                if (toolResult != null && pendingRemoteToolCall?.name == toolResult.name) {
+                                    remoteToolProtocolVersion = 1
+                                    conversations.appendAgentEvent(
+                                        localId,
+                                        MessageRole.TOOL,
+                                        LocalToolRegistry.activityLabel(toolResult.name),
+                                        ToolActivity(toolResult.name, if (toolResult.succeeded) "Done" else "Failed", toolResult.output),
+                                        toolResult.name,
+                                    )
+                                    pendingRemoteToolCall = null
+                                } else {
+                                    pendingRemoteToolCall = null
+                                    conversations.sendUserMessage(localId, ToolCallProtocol.stripPromptPrelude(prompt))
+                                }
                             }
                         }
                         "ASSISTANT" -> {
