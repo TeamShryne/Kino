@@ -259,7 +259,7 @@ private fun latexPlugin(inlineTextSize: Float, blockTextSize: Float, color: Int)
             .textColor(color)
             .inlineTextColor(color)
             .blockTextColor(color)
-            .blockPadding(JLatexMathTheme.Padding.symmetric(vertical = 12, horizontal = 0))
+            .blockPadding(JLatexMathTheme.Padding.symmetric(12, 0))
         builder.errorHandler { latex, _ ->
             RawLatexDrawable(latex, inlineTextSize, color)
         }
