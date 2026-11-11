@@ -18,6 +18,7 @@ import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
 import com.teamshryne.kino.data.tools.HtmlPdfRenderer
+import com.teamshryne.kino.data.tools.KinoOfficeClient
 import com.teamshryne.kino.data.tools.LocalToolRegistry
 import com.teamshryne.kino.data.tools.ToolCallProtocol
 import com.teamshryne.kino.domain.model.ChatProviderState
@@ -65,6 +66,8 @@ class KinoViewModel(
     val libraries: StateFlow<List<LibraryState>> = _libraries.asStateFlow()
     private val _libraryBusy = MutableStateFlow<String?>(null)
     val libraryBusy: StateFlow<String?> = _libraryBusy.asStateFlow()
+    private val _libraryRefreshBusy = MutableStateFlow(false)
+    val libraryRefreshBusy: StateFlow<Boolean> = _libraryRefreshBusy.asStateFlow()
     private val _libraryProgress = MutableStateFlow(0f)
     val libraryProgress: StateFlow<Float> = _libraryProgress.asStateFlow()
     private val _libraryError = MutableStateFlow<String?>(null)
@@ -79,6 +82,7 @@ class KinoViewModel(
         maxPageChars = _pdfMaxPageKb.value * 1024,
         maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
     )
+    private val officeClient = KinoOfficeClient(application)
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
@@ -87,6 +91,7 @@ class KinoViewModel(
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
         },
+        renderOffice = { arguments -> officeClient.render(arguments) },
     )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())
@@ -191,6 +196,8 @@ class KinoViewModel(
     private fun coreReady(): Boolean = _libraries.value.any { it.library.id == "kino-core" && it.installed }
 
     fun refreshLibraries() = viewModelScope.launch {
+        if (_libraryRefreshBusy.value) return@launch
+        _libraryRefreshBusy.value = true
         try {
             _libraries.value = libraryManager.catalog().map(libraryManager::state)
             _libraryError.value = null
@@ -203,6 +210,7 @@ class KinoViewModel(
                 _firstRunCorePrompt.value = true
             }
         } catch (error: Exception) { _libraryError.value = error.message?.take(240) ?: "Could not load available libraries." }
+        finally { _libraryRefreshBusy.value = false }
     }
 
     fun installLibrary(id: String) = viewModelScope.launch {
@@ -718,7 +726,7 @@ class KinoViewModel(
                         toolRegistry.execute(chatId, call.name, call.arguments, browserEnabled = active.searchEnabled)
                     } catch (error: Exception) {
                         if (generation.cancelled.get()) throw error
-                        val reason = error.message?.take(500) ?: "Tool failed."
+                        val reason = (error.message ?: error.toString()).take(500)
                         finishLocalTool(liveId, "Failed", reason)
                         null
                     }
@@ -1125,6 +1133,7 @@ class KinoViewModel(
 
     private fun persistActiveProviderOptions() {
         val chatId = _activeChat.value ?: return
+        if (chatId.startsWith("draft-")) return
         viewModelScope.launch {
             val state = conversations.providerState(chatId) ?: ChatProviderState(chatId, modelType = _selectedModel.value)
             conversations.saveProviderState(state.copy(thinkingEnabled = _thinkingEnabled.value, searchEnabled = _searchEnabled.value, modelType = _selectedModel.value))

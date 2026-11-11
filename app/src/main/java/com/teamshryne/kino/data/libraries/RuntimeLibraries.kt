@@ -13,7 +13,7 @@ import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipFile
 
-private const val CATALOG_URL = "https://raw.githubusercontent.com/TeamShryne/kino-libraries/main/libraries.json"
+private const val CATALOG_URL = "https://teamshryne.github.io/kino-libraries/libraries.json"
 private val supportedAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
 data class LibraryArtifact(val abi: String, val fileName: String, val url: String, val sha256: String, val size: Long)
@@ -36,10 +36,9 @@ class RuntimeLibraries(private val context: Context) {
                 val row = rows.getJSONObject(i)
                 val artifacts = row.getJSONArray("artifacts")
                 val libraryId = row.getString("id")
-                // PDF rendering is built in via Android WebView; only Kino Core is offered.
-                if (libraryId == "kino-core") add(RuntimeLibrary(
+                if (libraryId in setOf("kino-core", "kino-office")) add(RuntimeLibrary(
                     id = libraryId, name = row.getString("name"), version = row.getString("version"),
-                    description = row.getString("description"), format = row.getString("format"), nativeLibrary = row.getString("native_library"),
+                    description = row.getString("description"), format = row.getString("format"), nativeLibrary = row.optString("native_library"),
                     classesFile = row.optString("classes_file").takeIf { it.isNotBlank() },
                     artifacts = buildList { for (j in 0 until artifacts.length()) { val a = artifacts.getJSONObject(j); add(LibraryArtifact(a.getString("abi"), a.getString("file_name"), a.getString("download_url"), a.getString("sha256"), a.getLong("size_bytes"))) } },
                 ))
@@ -51,18 +50,24 @@ class RuntimeLibraries(private val context: Context) {
 
     fun state(library: RuntimeLibrary): LibraryState {
         val installedVersion = prefs.getString("${library.id}.version", null)
-        val artifact = library.artifacts.firstOrNull { it.abi == abi }
-        val installed = installedVersion == library.version && artifact != null && File(destination(library, artifact), library.nativeLibrary).isFile && (library.classesFile == null || File(destination(library, artifact), library.classesFile).isFile)
+        val artifact = library.artifacts.firstOrNull { it.abi == abi } ?: library.artifacts.firstOrNull { it.abi == "universal" }
+        val folder = artifact?.let { destination(library, it) }
+        val nativeOk = library.nativeLibrary.isBlank() || (folder != null && File(folder, library.nativeLibrary).isFile)
+        val classesOk = library.classesFile == null || (folder != null && File(folder, library.classesFile).isFile)
+        val installed = installedVersion == library.version && artifact != null && nativeOk && classesOk
         return LibraryState(library, installed, installedVersion, artifact)
     }
 
     suspend fun install(library: RuntimeLibrary, progress: (Long, Long) -> Unit = { _, _ -> }) = withContext(Dispatchers.IO) {
-        require(library.id == "kino-core") { "Unknown runtime library." }
-        require(library.nativeLibrary.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid native library name." }
+        require(library.id in setOf("kino-core", "kino-office")) { "Unknown runtime library." }
+        if (library.nativeLibrary.isNotBlank()) require(library.nativeLibrary.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid native library name." }
         require(library.format == "gomobile-dex-runtime-zip-v1") { "Unsupported runtime package format." }
         require(library.artifacts.map { it.abi }.distinct().size == library.artifacts.size) { "Duplicate ABI packages in catalog." }
         val artifact = state(library).artifact ?: error("${library.name} is not available for this device (${abi.ifBlank { "unknown ABI" }}).")
-        require(artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/")) { "Library URL is not trusted." }
+        require(
+            artifact.url.startsWith("https://github.com/TeamShryne/kino-libraries/releases/") ||
+                artifact.url.startsWith("https://github.com/TeamShryne/kino-office/releases/")
+        ) { "Library URL is not trusted." }
         val folder = destination(library, artifact).apply { mkdirs() }
         val archive = File(folder, "${artifact.fileName}.part")
         try {
@@ -82,7 +87,8 @@ class RuntimeLibraries(private val context: Context) {
                     val name = File(entry.name)
                     require(!name.isAbsolute && name.toPath().nameCount == 1 && name.name != "." && name.name != "..") { "Invalid library archive entry." }
                     if (!entry.isDirectory) {
-                        require(name.name in setOf(library.nativeLibrary, library.classesFile, "library.json")) { "Unexpected file in library archive." }
+                        val allowedEntries = buildSet { if (library.nativeLibrary.isNotBlank()) add(library.nativeLibrary); library.classesFile?.let(::add); add("library.json") }
+                        require(name.name in allowedEntries) { "Unexpected file in library archive." }
                         val target = File(folder, name.name)
                         target.outputStream().buffered().use { output ->
                             val buffer = ByteArray(64 * 1024)
@@ -92,11 +98,13 @@ class RuntimeLibraries(private val context: Context) {
                     zip.closeEntry()
                 }
             }
-            require(File(folder, library.nativeLibrary).isFile && (library.classesFile == null || File(folder, library.classesFile).isFile)) { "Library archive is missing required files." }
-            if (library.id == "kino-core") ZipFile(File(folder, requireNotNull(library.classesFile))).use { jar ->
-                require(jar.getEntry("classes.dex") != null) { "Kino Core package has no Android DEX bytecode." }
+            val nativeOk = library.nativeLibrary.isBlank() || File(folder, library.nativeLibrary).isFile
+            val classesOk = library.classesFile == null || File(folder, library.classesFile).isFile
+            require(nativeOk && classesOk) { "Library archive is missing required files." }
+            if (library.classesFile != null) ZipFile(File(folder, library.classesFile)).use { jar ->
+                require(jar.getEntry("classes.dex") != null) { "Runtime package has no Android DEX bytecode." }
             }
-            listOf(library.nativeLibrary, library.classesFile).filterNotNull().forEach { File(folder, it).setReadOnly() }
+            listOf(library.nativeLibrary, library.classesFile).filter { !it.isNullOrBlank() }.forEach { File(folder, it!!).setReadOnly() }
             prefs.edit().putString("${library.id}.version", library.version).apply()
             archive.delete()
         } catch (error: Throwable) { archive.delete(); throw error }
@@ -112,9 +120,16 @@ class RuntimeLibraries(private val context: Context) {
         return DexClassLoader(File(dir, "classes.jar").absolutePath, optimized.absolutePath, so.parent, context.classLoader)
     }
 
+    fun officeClassLoader(): ClassLoader {
+        val version = prefs.getString("kino-office.version", null) ?: error("Install Kino Office from Settings > Libraries before creating Office files.")
+        val dir = File(File(root, "kino-office"), version).walkTopDown().firstOrNull { it.name == "classes.jar" }?.parentFile ?: error("Kino Office is not installed.")
+        val optimized = File(context.codeCacheDir, "kino-office-dex").apply { mkdirs() }
+        return DexClassLoader(File(dir, "classes.jar").absolutePath, optimized.absolutePath, null, context.classLoader)
+    }
+
     private fun destination(library: RuntimeLibrary, artifact: LibraryArtifact) = File(File(root, library.id), "${library.version}/${artifact.abi}")
     private fun downloadText(url: String): String {
-        require(url.startsWith("https://raw.githubusercontent.com/TeamShryne/kino-libraries/"))
+        require(url.startsWith("https://teamshryne.github.io/kino-libraries/"))
         val refreshedUrl = "$url${if (url.contains('?')) '&' else '?'}kino_refresh=${System.currentTimeMillis()}"
         val connection = URL(refreshedUrl).openConnection() as HttpURLConnection
         try {

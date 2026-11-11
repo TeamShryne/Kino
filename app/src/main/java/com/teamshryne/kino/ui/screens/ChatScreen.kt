@@ -43,7 +43,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DesktopWindows
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureAsPdf
@@ -55,7 +54,6 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Chat
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -63,11 +61,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ModalBottomSheet
@@ -147,13 +143,11 @@ fun ChatScreen(
     onRemoveAttachment: (String) -> Unit,
     onStop: () -> Unit,
     onProviderSettings: () -> Unit,
-    onRename: (String) -> Unit,
     browserOpen: Boolean,
     onToggleBrowser: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
-    var renameOpen by rememberSaveable { mutableStateOf(false) }
     var selectedSource by remember { mutableStateOf<SearchSource?>(null) }
     val rows = remember(messages) { groupToolActivity(messages) }
     val liveRows = remember(liveTools) { groupToolActivity(liveTools) }
@@ -212,11 +206,6 @@ fun ChatScreen(
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "Chat actions") }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
-                                text = { Text("Rename chat") },
-                                leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                onClick = { menuOpen = false; renameOpen = true },
-                            )
-                            DropdownMenuItem(
                                 text = { Text("DeepSeek settings") },
                                 leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                                 onClick = { menuOpen = false; onProviderSettings() },
@@ -267,6 +256,7 @@ fun ChatScreen(
                         }
                         is TimelineRow.WorkGroup -> ToolActivityBlock(row.items, showToolDetails, tableCellMinWidth, live = false) { selectedSource = it }
                         is TimelineRow.PdfBlock -> PdfActivityBlock(row.message, tableCellMinWidth)
+                        is TimelineRow.OfficeBlock -> OfficeActivityBlock(row.message, tableCellMinWidth)
                     }
                 }
                 liveRows.forEach { row ->
@@ -279,6 +269,9 @@ fun ChatScreen(
                         }
                         is TimelineRow.PdfBlock -> item(key = "live-" + row.key) {
                             PdfActivityBlock(row.message, tableCellMinWidth)
+                        }
+                        is TimelineRow.OfficeBlock -> item(key = "live-" + row.key) {
+                            OfficeActivityBlock(row.message, tableCellMinWidth)
                         }
                     }
                 }
@@ -294,26 +287,6 @@ fun ChatScreen(
                 }
             }
         }
-    }
-
-    if (renameOpen) {
-        var renameValue by rememberSaveable { mutableStateOf(title) }
-        AlertDialog(
-            onDismissRequest = { renameOpen = false },
-            title = { Text("Rename chat") },
-            text = {
-                OutlinedTextField(
-                    value = renameValue,
-                    onValueChange = { renameValue = it },
-                    singleLine = true,
-                    label = { Text("Title") },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { renameOpen = false; onRename(renameValue) }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } },
-        )
     }
 
     selectedSource?.let { source ->
@@ -385,6 +358,9 @@ private sealed interface TimelineRow {
     data class PdfBlock(val message: KinoMessage) : TimelineRow {
         override val key: String = "pdf-${message.id}"
     }
+    data class OfficeBlock(val message: KinoMessage) : TimelineRow {
+        override val key: String = "office-${message.id}"
+    }
 }
 
 private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
@@ -400,6 +376,9 @@ private fun groupToolActivity(messages: List<KinoMessage>): List<TimelineRow> {
         if (message.role == MessageRole.TOOL && message.tool?.name == "html_to_pdf") {
             flushWork()
             rows += TimelineRow.PdfBlock(message)
+        } else if (message.role == MessageRole.TOOL && message.tool?.name == "office_document") {
+            flushWork()
+            rows += TimelineRow.OfficeBlock(message)
         } else if (message.role == MessageRole.TOOL) {
             work += message
         } else {
@@ -650,6 +629,77 @@ private fun PdfActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OfficeActivityBlock(message: KinoMessage, tableCellMinWidth: Int) {
+    val context = LocalContext.current
+    val tool = message.tool ?: return
+    val office = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
+    val filename = office?.optString("filename").orEmpty()
+    val format = office?.optString("format").orEmpty()
+    val extension = filename.substringAfterLast('.', "").lowercase()
+    val mime = when (extension) {
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "xls" -> "application/vnd.ms-excel"
+        else -> "*/*"
+    }
+    val safeFilename = filename.takeIf { it.matches(Regex("kino-[a-f0-9-]{36}\\.(docx|xlsx|pptx|xls)")) }
+    val title = if (safeFilename != null) office?.optString("title").orEmpty().ifBlank { "Office file ready" } else "Preparing Office file"
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.AttachFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            }
+            if (safeFilename != null) {
+                val uri = remember(safeFilename) {
+                    val file = File(context.filesDir, "office-exports/$safeFilename")
+                    if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+                }
+                Text("Your ${extension.uppercase()} file is ready to open or share.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            uri?.let { u ->
+                                val open = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(u, mime)
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(open, "Open Office file")) }
+                                    .onFailure { Toast.makeText(context, "No viewer is available.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = uri != null,
+                    ) { Text("Open ${extension.uppercase()}") }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            uri?.let { u ->
+                                val share = Intent(Intent.ACTION_SEND).apply {
+                                    type = mime
+                                    putExtra(Intent.EXTRA_STREAM, u)
+                                    clipData = ClipData.newUri(context.contentResolver, "Kino Office", u)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runCatching { context.startActivity(Intent.createChooser(share, "Share Office file")) }
+                                    .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                            }
+                        }, enabled = uri != null,
+                    ) { Text("Share") }
+                }
+            } else {
+                Text("Preparing Office file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
 private fun toolGroupSummary(items: List<KinoMessage>): String {
     val counts = items.groupingBy { it.tool?.name.orEmpty() }.eachCount()
     val labels = buildList {
@@ -660,7 +710,8 @@ private fun toolGroupSummary(items: List<KinoMessage>): String {
         counts["calculator"]?.let { add(if (it == 1) "Used calculator" else "Used calculator $it times") }
         counts["date_time"]?.let { add("Checked date and time") }
         counts["html_to_pdf"]?.let { add(if (it == 1) "Created PDF" else "Created $it PDFs") }
-        counts.filterKeys { it !in setOf("thinking", "browser", "search", "search_chat", "calculator", "date_time", "html_to_pdf") }
+        counts["office_document"]?.let { add(if (it == 1) "Created Office file" else "Created $it Office files") }
+        counts.filterKeys { it !in setOf("thinking", "browser", "search", "search_chat", "calculator", "date_time", "html_to_pdf", "office_document") }
             .values.sum().takeIf { it > 0 }?.let { add(if (it == 1) "Used a tool" else "Used $it tools") }
     }
     return labels.joinToString(" and ").ifBlank { items.firstOrNull()?.text ?: "Agent activity" }

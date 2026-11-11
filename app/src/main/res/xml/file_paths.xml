@@ -1,3 +1,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="pdf_exports" path="pdf-exports/" />
+    <files-path name="office_exports" path="office-exports/" />
+    <files-path name="crash_logs" path="crash-logs/" />
 </paths>

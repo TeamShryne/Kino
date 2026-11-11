@@ -59,6 +59,10 @@ internal class ChatGeneration(val chatId: String) {
 internal data class GenerationRevision(val chatId: String, val sequence: Long)
 
 class KinoApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        KinoCrashHandler.install(this)
+    }
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     internal val generations = ConcurrentHashMap<String, ChatGeneration>()
     internal val nextLiveToolId = AtomicLong(-10L)
