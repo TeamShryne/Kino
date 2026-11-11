@@ -1128,6 +1128,7 @@ class KinoViewModel(
 
     private fun persistActiveProviderOptions() {
         val chatId = _activeChat.value ?: return
+        if (chatId.startsWith("draft-")) return
         viewModelScope.launch {
             val state = conversations.providerState(chatId) ?: ChatProviderState(chatId, modelType = _selectedModel.value)
             conversations.saveProviderState(state.copy(thinkingEnabled = _thinkingEnabled.value, searchEnabled = _searchEnabled.value, modelType = _selectedModel.value))
