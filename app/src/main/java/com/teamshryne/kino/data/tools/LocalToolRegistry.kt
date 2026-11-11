@@ -41,13 +41,17 @@ class LocalToolRegistry(
     private val pdfLimits: () -> PdfLimits = { PdfLimits() },
 ) {
     suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
-        val spec = toolSpec(name) ?: error("Unknown tool: $name")
+        val canonicalName = canonicalToolName(name)
+        if (canonicalName == "office_document" && !arguments.has("format")) {
+            inferredOfficeFormat(name)?.let { arguments.put("format", it) }
+        }
+        val spec = toolSpec(canonicalName) ?: error("Unknown tool: $name")
         val keys = arguments.keys().asSequence().toSet()
         require(keys.all { it in spec.allowedArguments }) { "Unexpected argument for $name." }
         fun stringArgument(key: String, required: Boolean) {
             if (required || arguments.has(key)) require(arguments.opt(key) is String) { "$key must be a string." }
         }
-        when (name) {
+        when (canonicalName) {
             "calculator" -> stringArgument("expression", true)
             "date_time" -> stringArgument("timezone", false)
             "search_chat" -> {
@@ -108,7 +112,7 @@ class LocalToolRegistry(
                 if (arguments.has("tab_id")) stringArgument("tab_id", false)
             }
         }
-        val result = when (name) {
+        val result = when (canonicalName) {
         "calculator" -> LocalToolResult(name, "Used calculator", Calculator.evaluate(arguments.getString("expression")))
         "date_time" -> {
             val zone = arguments.optString("timezone").ifBlank { ZoneId.systemDefault().id }
@@ -145,7 +149,7 @@ class LocalToolRegistry(
             val format = arguments.getString("format")
             val operation = arguments.optString("operation", "create")
             val filename = renderOffice(arguments)
-            LocalToolResult(name, if (operation == "edit") "Edited Office document" else "Created Office document", JSONObject().put("filename", filename).put("format", format).put("operation", operation).toString())
+            LocalToolResult(canonicalName, if (operation == "edit") "Edited Office document" else "Created Office document", JSONObject().put("filename", filename).put("format", format).put("operation", operation).toString())
         }
         else -> error("Unknown tool: $name")
         }
@@ -212,8 +216,21 @@ class LocalToolRegistry(
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
-        fun hasTool(name: String): Boolean = catalog.any { it.name == name }
-        fun activityLabel(name: String): String = when (name) {
+        fun canonicalToolName(name: String): String = when (name.lowercase()) {
+            "office", "office_create", "create_office", "office_file" -> "office_document"
+            "create_word", "create_word_document", "create_docx", "word_document", "word" -> "office_document"
+            "create_excel", "create_spreadsheet", "create_xlsx", "spreadsheet", "excel" -> "office_document"
+            "create_ppt", "create_pptx", "create_presentation", "presentation", "ppt", "powerpoint" -> "office_document"
+            else -> name
+        }
+        fun inferredOfficeFormat(name: String): String? = when (name.lowercase()) {
+            "create_word", "create_word_document", "create_docx", "word_document", "word" -> "docx"
+            "create_excel", "create_spreadsheet", "create_xlsx", "spreadsheet", "excel" -> "xlsx"
+            "create_ppt", "create_pptx", "create_presentation", "presentation", "ppt", "powerpoint" -> "pptx"
+            else -> null
+        }
+        fun hasTool(name: String): Boolean = catalog.any { it.name == canonicalToolName(name) }
+        fun activityLabel(name: String): String = when (canonicalToolName(name)) {
             "calculator" -> "Used calculator"
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
@@ -222,9 +239,9 @@ class LocalToolRegistry(
             "browser" -> "Browsed website"
             else -> "Used tool"
         }
-        private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == name }
+        private fun toolSpec(name: String): ToolSpec? = catalog.firstOrNull { it.name == canonicalToolName(name) }
 
-        fun progress(name: String, arguments: JSONObject): Pair<String, String> = when (name) {
+        fun progress(name: String, arguments: JSONObject): Pair<String, String> = when (canonicalToolName(name)) {
             "calculator" -> "Using calculator" to "Evaluating ${arguments.optString("expression").take(80)}"
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"
