@@ -3,7 +3,13 @@ package com.teamshryne.kino.ui.components
 import android.animation.ValueAnimator
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -12,12 +18,11 @@ import android.text.method.LinkMovementMethod
 import android.util.TypedValue
 import android.widget.TextView
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -29,21 +34,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.runtime.key
 import com.teamshryne.kino.R
+import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
+import io.noties.markwon.core.MarkwonTheme
+import io.noties.markwon.ext.latex.JLatexMathPlugin
+import io.noties.markwon.ext.latex.JLatexMathTheme
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.html.HtmlPlugin
 import io.noties.markwon.image.ImagesPlugin
+import io.noties.markwon.inlineparser.MarkwonInlineParserPlugin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
@@ -141,52 +152,153 @@ fun MarkdownText(
 ) {
     val context = LocalContext.current
     val color = MaterialTheme.colorScheme.onSurface
-    val markwon = remember(context) {
+    val colorInt = color.toArgb()
+    val markwon = rememberMarkwon(context, MaterialTheme.colorScheme)
+    val segments = remember(markdown) { MarkdownParser.segments(markdown) }
+
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val availableWidth = maxWidth
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            segments.forEachIndexed { index, segment ->
+                key(index, segment::class) {
+                    when (segment) {
+                        is MarkdownSegment.Prose -> AndroidMarkdownView(
+                            markdown = segment.markdown,
+                            markwon = markwon,
+                            color = colorInt,
+                            modifier = Modifier.fillMaxWidth(),
+                            animateNewContent = animateNewContent,
+                        )
+                        is MarkdownSegment.Math -> AndroidMarkdownView(
+                            markdown = "$$\n${segment.latex}\n$$",
+                            markwon = markwon,
+                            color = colorInt,
+                            modifier = Modifier.fillMaxWidth(),
+                            animateNewContent = animateNewContent,
+                        )
+                        is MarkdownSegment.Code -> CodeBlockCard(
+                            language = segment.language,
+                            code = segment.code,
+                        )
+                        is MarkdownSegment.Table -> {
+                            val tableWidth = maxOf(availableWidth, (tableCellMinWidthDp.coerceIn(64, 240) * segment.columnCount).dp)
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                AndroidMarkdownView(
+                                    markdown = segment.markdown,
+                                    markwon = markwon,
+                                    color = colorInt,
+                                    modifier = Modifier.width(tableWidth),
+                                    animateNewContent = animateNewContent,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Builds the Markwon instance used for every message.
+ *
+ * The instance is rebuilt whenever the color scheme changes so that code, quotes, links and
+ * formulas always match the light or dark palette.
+ */
+@Composable
+private fun rememberMarkwon(context: Context, scheme: ColorScheme): Markwon {
+    val metrics = context.resources.displayMetrics
+    val inlineTextSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 16f, metrics)
+    val blockTextSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 19f, metrics)
+    val textColor = scheme.onSurface.toArgb()
+    val codeBackground = scheme.surfaceVariant.toArgb()
+    val linkColor = scheme.primary.toArgb()
+    val mutedColor = scheme.onSurfaceVariant.toArgb()
+    val ruleColor = scheme.outlineVariant.toArgb()
+    return remember(context, textColor, codeBackground, linkColor, mutedColor, ruleColor) {
         Markwon.builder(context)
+            .usePlugin(MarkwonInlineParserPlugin.create())
             .usePlugin(StrikethroughPlugin.create())
             .usePlugin(TablePlugin.create(context))
             .usePlugin(TaskListPlugin.create(context))
             .usePlugin(HtmlPlugin.create())
             .usePlugin(ImagesPlugin.create())
+            .usePlugin(MarkdownThemePlugin(codeBackground, textColor, linkColor, mutedColor, ruleColor))
+            .usePlugin(latexPlugin(inlineTextSize, blockTextSize, textColor))
             .build()
     }
-    val colorInt = color.toArgb()
-    val blocks = remember(markdown) { splitMarkdownTables(markdown) }
+}
 
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val availableWidth = maxWidth
-        Column(Modifier.fillMaxWidth()) {
-            blocks.forEachIndexed { index, block ->
-                key(index, block.isTable) {
-                    if (block.isTable) Spacer(Modifier.height(12.dp))
-                    val blockModifier = if (block.isTable) {
-                        Modifier.fillMaxWidth()
-                    } else Modifier.fillMaxWidth()
-                    if (block.isTable) {
-                        val tableWidth = maxOf(availableWidth, (tableCellMinWidthDp.coerceIn(64, 240) * block.columnCount).dp)
-                        Row(blockModifier.horizontalScroll(rememberScrollState())) {
-                            AndroidMarkdownView(
-                                markdown = block.markdown,
-                                markwon = markwon,
-                                color = colorInt,
-                                modifier = Modifier.width(tableWidth),
-                                animateNewContent = animateNewContent,
-                            )
-                        }
-                    } else {
-                        AndroidMarkdownView(
-                            markdown = block.markdown,
-                            markwon = markwon,
-                            color = colorInt,
-                            modifier = blockModifier,
-                            animateNewContent = animateNewContent,
-                        )
-                    }
-                    if (block.isTable) Spacer(Modifier.height(14.dp))
-                }
-            }
+/** Keeps the markdown colors in sync with the app theme. */
+private class MarkdownThemePlugin(
+    private val codeBackground: Int,
+    private val codeText: Int,
+    private val linkColor: Int,
+    private val mutedColor: Int,
+    private val ruleColor: Int,
+) : AbstractMarkwonPlugin() {
+    override fun configureTheme(builder: MarkwonTheme.Builder) {
+        builder
+            .codeBackgroundColor(codeBackground)
+            .codeTextColor(codeText)
+            .codeBlockBackgroundColor(codeBackground)
+            .codeBlockTextColor(codeText)
+            .linkColor(linkColor)
+            .blockQuoteColor(mutedColor)
+            .thematicBreakColor(ruleColor)
+            .headingBreakColor(ruleColor)
+    }
+}
+
+/** Renders inline (`$x$`) and display (`$$ ... $$`) formulas with the full LaTeX engine. */
+private fun latexPlugin(inlineTextSize: Float, blockTextSize: Float, color: Int): JLatexMathPlugin =
+    JLatexMathPlugin.create(inlineTextSize, blockTextSize) { builder ->
+        builder.inlinesEnabled(true)
+        builder.blocksEnabled(true)
+        builder.theme()
+            .textColor(color)
+            .inlineTextColor(color)
+            .blockTextColor(color)
+            .blockPadding(JLatexMathTheme.Padding.symmetric(vertical = 12, horizontal = 0))
+        builder.errorHandler { latex, _ ->
+            RawLatexDrawable(latex, inlineTextSize, color)
         }
     }
+
+/** Draws the raw source of a formula that could not be typeset. */
+private class RawLatexDrawable(
+    private val source: String,
+    private val textSize: Float,
+    private val color: Int,
+) : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.textSize = textSize
+        this.color = color
+        typeface = Typeface.MONOSPACE
+    }
+    private val inset = (textSize * 0.35f).toInt().coerceAtLeast(2)
+
+    override fun draw(canvas: Canvas) {
+        val bounds = bounds
+        val baseline = bounds.height() - inset - paint.fontMetrics.descent
+        canvas.drawText(source, inset.toFloat(), baseline, paint)
+    }
+
+    override fun getIntrinsicWidth(): Int = paint.measureText(source).toInt() + inset * 2
+
+    override fun getIntrinsicHeight(): Int =
+        (paint.fontMetrics.descent - paint.fontMetrics.ascent).toInt() + inset * 2
+
+    override fun setAlpha(alpha: Int) {
+        paint.alpha = alpha
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        paint.colorFilter = colorFilter
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
 @Composable
@@ -211,7 +323,10 @@ private fun AndroidMarkdownView(
         },
         update = { textView ->
             textView.setTextColor(color)
-            if (textView.getTag(R.id.markdown_rendered_source) != markdown) {
+            val sourceChanged = textView.getTag(R.id.markdown_rendered_source) != markdown
+            // Formulas are baked into the rendered text, so a theme change has to re-render as well.
+            val colorChanged = textView.getTag(R.id.markdown_rendered_color) != color
+            if (sourceChanged || colorChanged) {
                 val previous = textView.text as? Spanned
                 val previousText = previous?.toString().orEmpty()
                 val rendered = SpannableStringBuilder(markwon.toMarkdown(markdown))
@@ -234,6 +349,7 @@ private fun AndroidMarkdownView(
                 } else null
                 markwon.setParsedMarkdown(textView, rendered)
                 textView.setTag(R.id.markdown_rendered_source, markdown)
+                textView.setTag(R.id.markdown_rendered_color, color)
                 newSpan?.let { span ->
                     span.animator = ValueAnimator.ofFloat(0f, 1f).apply {
                         duration = 170L
@@ -266,72 +382,6 @@ private class FadeInSpan : android.text.style.CharacterStyle(), android.text.sty
         textPaint.alpha = (textPaint.alpha * alpha).roundToInt().coerceIn(0, 255)
     }
 }
-
-private data class MarkdownBlock(val markdown: String, val isTable: Boolean, val columnCount: Int = 1)
-
-private fun splitMarkdownTables(markdown: String): List<MarkdownBlock> {
-    if (markdown.isBlank()) return emptyList()
-    val lines = markdown.split('\n')
-    val blocks = mutableListOf<MarkdownBlock>()
-    val plain = StringBuilder()
-    var fenced = false
-    var fenceMarker = ""
-    var index = 0
-
-    fun flushPlain() {
-        if (plain.isNotEmpty()) {
-            blocks += MarkdownBlock(plain.toString(), isTable = false)
-            plain.clear()
-        }
-    }
-
-    while (index < lines.size) {
-        val line = lines[index]
-        val trimmed = line.trimStart()
-        val marker = when {
-            trimmed.startsWith("```") -> "```"
-            trimmed.startsWith("~~~") -> "~~~"
-            else -> ""
-        }
-        if (marker.isNotEmpty()) {
-            if (!fenced) {
-                fenced = true
-                fenceMarker = marker
-            } else if (marker == fenceMarker) {
-                fenced = false
-                fenceMarker = ""
-            }
-        }
-
-        if (!fenced && isTableHeader(line) && index + 1 < lines.size && isTableDivider(lines[index + 1])) {
-            flushPlain()
-            val table = StringBuilder().append(line).append('\n').append(lines[index + 1])
-            val columns = cellCount(line)
-            index += 2
-            while (index < lines.size && lines[index].isNotBlank() && lines[index].contains('|')) {
-                table.append('\n').append(lines[index])
-                index++
-            }
-            blocks += MarkdownBlock(table.toString(), isTable = true, columnCount = columns)
-            continue
-        }
-
-        plain.append(line)
-        if (index < lines.lastIndex) plain.append('\n')
-        index++
-    }
-    flushPlain()
-    return blocks
-}
-
-private fun isTableHeader(line: String): Boolean = line.contains('|') && cellCount(line) >= 2
-
-private fun isTableDivider(line: String): Boolean {
-    val cells = line.trim().trim('|').split('|').map(String::trim)
-    return cells.size >= 2 && cells.all { it.matches(Regex(":?-{3,}:?")) }
-}
-
-private fun cellCount(line: String): Int = line.trim().trim('|').split('|').size
 
 private fun commonPrefixLength(previous: String, current: CharSequence): Int {
     val limit = minOf(previous.length, current.length)

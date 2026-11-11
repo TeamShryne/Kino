@@ -1,3 +1,4 @@
 <resources>
     <item name="markdown_rendered_source" type="id" />
+    <item name="markdown_rendered_color" type="id" />
 </resources>
