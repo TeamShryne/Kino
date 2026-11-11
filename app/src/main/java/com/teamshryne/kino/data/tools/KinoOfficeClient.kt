@@ -14,8 +14,9 @@ class KinoOfficeClient(private val context: Context) {
         try {
             val loader = libraries.officeClassLoader()
             val officeClass = loader.loadClass("com.teamshryne.kinooffice.OfficeLibrary")
-            val method = officeClass.getMethod("render", Context::class.java, JSONObject::class.java)
-            method.invoke(null, context, arguments) as? String ?: error("Kino Office did not return a filename.")
+            val method = officeClass.getMethod("render", java.io.File::class.java, JSONObject::class.java)
+            val outputDir = java.io.File(context.filesDir, "office-exports").apply { mkdirs() }
+            method.invoke(null, outputDir, arguments) as? String ?: error("Kino Office did not return a filename.")
         } catch (error: Throwable) {
             val cause = if (error is java.lang.reflect.InvocationTargetException) error.targetException ?: error.cause ?: error else error.cause ?: error
             val detail = buildString {
