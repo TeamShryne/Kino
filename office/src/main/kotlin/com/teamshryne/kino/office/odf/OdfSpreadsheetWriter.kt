@@ -583,14 +583,14 @@ object OdfSpreadsheetWriter {
         private val tableStyles = LinkedHashMap<String, String>()
         private val tableStyleXml = LinkedHashMap<String, String>()
 
-        fun headerStyle(): String = defineCellStyle("header", null) {
+        fun headerStyle(): String = defineCellStyle("header", "KinoHeader", null) {
             "<style:table-cell-properties fo:background-color=\"${hex(theme.accent)}\" " +
                 "fo:padding=\"0.08cm\" style:vertical-align=\"middle\"/>" +
                 "<style:text-properties fo:font-family=\"${Xml.attribute(theme.sansFont)}\" " +
                 "fo:font-size=\"10pt\" fo:font-weight=\"bold\" fo:color=\"#ffffff\"/>"
         }
 
-        fun totalLabelStyle(): String = defineCellStyle("total-label", null) {
+        fun totalLabelStyle(): String = defineCellStyle("total-label", "KinoTotalLabel", null) {
             "<style:table-cell-properties fo:background-color=\"${hex(theme.accentSoft)}\" " +
                 "fo:padding=\"0.05cm\" style:vertical-align=\"middle\"/>" +
                 "<style:text-properties fo:font-family=\"${Xml.attribute(theme.sansFont)}\" " +
@@ -599,7 +599,7 @@ object OdfSpreadsheetWriter {
 
         fun totalValueStyle(column: SheetColumn?): String {
             val data = numberStyle(defaultFormat(column))
-            return defineCellStyle("total-value|$data", data) {
+            return defineCellStyle("total-value|$data", "KinoTotalValue", data) {
                 "<style:table-cell-properties fo:background-color=\"${hex(theme.accentSoft)}\" " +
                     "fo:padding=\"0.05cm\" style:vertical-align=\"middle\"/>" +
                     "<style:text-properties fo:font-family=\"${Xml.attribute(theme.sansFont)}\" " +
@@ -609,7 +609,7 @@ object OdfSpreadsheetWriter {
 
         fun dateStyle(): String {
             val data = numberStyle(FORMAT_DATE)
-            return defineCellStyle("date|$data", data) {
+            return defineCellStyle("date|$data", "KinoDate", data) {
                 "<style:table-cell-properties fo:padding=\"0.05cm\" style:vertical-align=\"middle\"/>" +
                     "<style:text-properties fo:font-family=\"${Xml.attribute(theme.sansFont)}\" " +
                     "fo:font-size=\"10pt\" fo:color=\"${hex(theme.ink)}\"/>"
@@ -629,7 +629,7 @@ object OdfSpreadsheetWriter {
             }
             val background = if (banded) hex(theme.surfaceAlt) else null
             val key = "cell|$data|$bold|$align|$background"
-            return defineCellStyle(key, data) {
+            return defineCellStyle(key, "KinoCell", data) {
                 val backgroundXml = background?.let { " fo:background-color=\"$it\"" }.orEmpty()
                 val boldXml = if (bold) " fo:font-weight=\"bold\"" else ""
                 "<style:table-cell-properties$backgroundXml fo:padding=\"0.05cm\" " +
@@ -676,14 +676,25 @@ object OdfSpreadsheetWriter {
             return xml.toString()
         }
 
-        private fun defineCellStyle(key: String, dataStyle: String?, definition: () -> String): String {
+        /**
+         * Registers a cell style. [name] is the readable base name the style
+         * gets in the package; a counter is added when the same base name is
+         * needed for more than one variant.
+         */
+        private fun defineCellStyle(key: String, name: String, dataStyle: String?, definition: () -> String): String {
             return cellStyles.getOrPut(key) {
-                val name = "KinoStyle${cellStyles.size + 1}"
-                cellStyles[key] = name
+                val unique = if (cellStyles.values.contains(name)) {
+                    var index = 2
+                    while (cellStyles.values.contains("$name$index")) index++
+                    "$name$index"
+                } else {
+                    name
+                }
+                cellStyles[key] = unique
                 val dataAttribute = dataStyle?.let { " style:data-style-name=\"$it\"" }.orEmpty()
-                cellStyleXml[name] = "<style:style style:name=\"$name\" style:family=\"table-cell\" " +
+                cellStyleXml[unique] = "<style:style style:name=\"$unique\" style:family=\"table-cell\" " +
                     "style:parent-style-name=\"Default\"$dataAttribute>${definition()}</style:style>"
-                name
+                unique
             }
         }
 

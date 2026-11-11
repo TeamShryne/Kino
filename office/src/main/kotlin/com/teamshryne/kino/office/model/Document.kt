@@ -64,15 +64,15 @@ data class KeyValueItem(val label: String, val value: String, val hint: String? 
 
 data class CalloutBlock(
     val kind: CalloutKind,
-    val title: String?,
+    val title: String? = null,
     val text: String,
 ) : Block
 
 enum class CalloutKind { INFO, NOTE, WARNING, SUCCESS, DANGER }
 
-data class QuoteBlock(val text: String, val attribution: String?) : Block
+data class QuoteBlock(val text: String, val attribution: String? = null) : Block
 
-data class CodeBlock(val text: String, val language: String?) : Block
+data class CodeBlock(val text: String, val language: String? = null) : Block
 
 data class ImageBlock(
     val source: String,

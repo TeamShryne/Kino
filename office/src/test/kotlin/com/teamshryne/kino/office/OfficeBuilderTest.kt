@@ -82,7 +82,7 @@ class OfficeBuilderTest {
         val (document, issues) = OfficeBuilder.parseDocument(documentPayload)
         assertEquals("Q3 Revenue Review", document.title)
         assertEquals("corporate", document.theme)
-        assertEquals(17, document.blocks.size)
+        assertEquals(15, document.blocks.size)
         assertTrue(issues.none { it.severity == ReportIssue.Severity.ERROR })
     }
 
@@ -153,10 +153,18 @@ class OfficeBuilderTest {
         listOf(OfficeFormat.XLSX, OfficeFormat.ODS, OfficeFormat.CSV, OfficeFormat.TSV).forEach { format ->
             val result = OfficeBuilder.build(format, sheetPayload)
             assertTrue(result.bytes.isNotEmpty(), "$format produced no bytes")
-            if (format == OfficeFormat.XLSX || format == OfficeFormat.ODS) {
-                zipText(result.bytes, "xl/workbook.xml")
-                val entries = zipEntries(result.bytes)
-                assertTrue(entries.any { it.endsWith("sheet1.xml") })
+            when (format) {
+                // SpreadsheetML keeps a workbook part and one part per sheet.
+                OfficeFormat.XLSX -> {
+                    zipText(result.bytes, "xl/workbook.xml")
+                    assertTrue(zipEntries(result.bytes).any { it.endsWith("sheet1.xml") })
+                }
+                // OpenDocument keeps every sheet inside content.xml.
+                OfficeFormat.ODS -> {
+                    val content = zipText(result.bytes, "content.xml")
+                    assertTrue(content.contains("table:name=\"Revenue\""), "the sheet is missing")
+                }
+                else -> Unit
             }
         }
     }

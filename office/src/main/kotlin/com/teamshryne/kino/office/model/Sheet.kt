@@ -3,8 +3,8 @@ package com.teamshryne.kino.office.model
 /** A single spreadsheet sheet: typed columns, row values, and light sheet metadata. */
 data class SheetSpec(
     val name: String,
-    val columns: List<SheetColumn>,
-    val rows: List<List<SheetCell>>,
+    val columns: List<SheetColumn> = emptyList(),
+    val rows: List<List<SheetCell>> = emptyList(),
     val freeze: String? = null,
     val autoFilter: Boolean = false,
     val notes: Map<String, String> = emptyMap(),

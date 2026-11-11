@@ -31,7 +31,6 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.util.Base64
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import javax.imageio.ImageIO
 import javax.xml.parsers.DocumentBuilderFactory
@@ -132,22 +131,25 @@ class OdfTextWriterTest {
 
     @Test
     fun `the mimetype entry comes first and is stored uncompressed`() {
-        val bytes = write()
-        val file = ZipFile(ByteArrayInputStream(bytes))
-        file.use {
-            val entries = it.entries().toList()
-            assertEquals("mimetype", entries.first().name)
-            assertEquals(ZipEntry.STORED, entries.first().method)
-            val content = it.getInputStream(entries.first()).readBytes().toString(Charsets.UTF_8)
-            assertEquals("application/vnd.oasis.opendocument.text", content)
+        val entries = mutableListOf<ZipEntry>()
+        val contents = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(write())).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                entries += entry
+                contents[entry.name] = zip.readBytes().toString(Charsets.UTF_8)
+            }
         }
+        assertEquals("mimetype", entries.first().name)
+        assertEquals(ZipEntry.STORED, entries.first().method)
+        assertEquals("application/vnd.oasis.opendocument.text", contents.getValue("mimetype"))
     }
 
     @Test
     fun `every xml part parses`() {
         val parts = entries(write())
         val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
-        parts.filter { it.endsWith(".xml") }.forEach { (name, xml) ->
+        parts.entries.filter { it.key.endsWith(".xml") }.forEach { (name, xml) ->
             val document = factory.newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
             assertNotNull(document.documentElement, name)
         }
@@ -186,8 +188,16 @@ class OdfTextWriterTest {
         assertTrue(content.contains("Simplicity is the ultimate sophistication."))
         assertTrue(content.contains("Revenue trend"), "chart caption missing")
         assertTrue(content.contains("<text:soft-page-break/>"), "page break missing")
-        assertTrue(content.contains("<text:page-number"), "page number missing")
-        assertTrue(content.contains("<text:page-count"), "page count missing")
+    }
+
+    @Test
+    fun `the master page carries the running header and the page numbers`() {
+        val styles = entries(write()).getValue("styles.xml")
+        assertTrue(styles.contains("style:master-page"), "the master page is missing")
+        assertTrue(styles.contains("Quarterly Review"), "the running header is missing")
+        assertTrue(styles.contains("Confidential"), "the running footer is missing")
+        assertTrue(styles.contains("<text:page-number"), "page number missing")
+        assertTrue(styles.contains("<text:page-count"), "page count missing")
     }
 
     @Test

@@ -238,11 +238,14 @@ class DocxWriterTest {
 
     @Test
     fun `images are embedded with a drawing`() {
-        val bytes = write()
-        val document = entries(bytes).getValue("word/document.xml")
-        assertTrue(document.contains("<w:drawing>"))
-        assertTrue(document.contains("xmlns:wp="))
-        assertTrue(document.contains("r:embed="))
+        val document = sampleDocument().copy(
+            blocks = sampleDocument().blocks + ImageBlock("logo.png", alt = "Logo", caption = "The logo"),
+        )
+        val bytes = write(document, images = mapOf("logo.png" to png()))
+        val documentXml = entries(bytes).getValue("word/document.xml")
+        assertTrue(documentXml.contains("<w:drawing>"))
+        assertTrue(documentXml.contains("xmlns:wp="))
+        assertTrue(documentXml.contains("r:embed="))
         assertTrue(names(bytes).any { it.startsWith("word/media/image1") })
     }
 

@@ -21,20 +21,32 @@ data class Span(
 /** Parses lightweight inline markup into styled spans. */
 object InlineMarkup {
 
-    private val LINK = Regex("^\\[([^\\]]*)]\\(([^)\\s]+)\\)")
+    private val LINK = Regex("\\[([^\\]]*)]\\(([^)\\s]+)\\)")
 
     fun parse(input: String): List<Span> {
         val spans = mutableListOf<Span>()
         val buffer = StringBuilder()
+        val pending = StringBuilder()
         var bold = false
         var italic = false
         var code = false
         var strike = false
 
+        /**
+         * Turns the buffered text into a run. Whitespace on its own is held
+         * back and prepended to the next run, so the words keep their spacing
+         * without producing empty runs that writers would have to skip.
+         */
         fun flush() {
             if (buffer.isEmpty()) return
-            spans += Span(buffer.toString(), bold, italic, code, strike)
+            val text = buffer.toString()
             buffer.setLength(0)
+            if (text.isBlank()) {
+                pending.append(text)
+                return
+            }
+            spans += Span(pending.toString() + text, bold, italic, code, strike)
+            pending.setLength(0)
         }
 
         var index = 0
@@ -57,11 +69,15 @@ object InlineMarkup {
             if (!code && c == '`') {
                 flush(); code = !code; index++; continue
             }
+            if (code && c == '`') {
+                flush(); code = false; index++; continue
+            }
             if (!code && c == '[') {
                 val match = LINK.matchAt(input, index)
                 if (match != null) {
                     flush()
-                    spans += Span(match.groupValues[1], link = match.groupValues[2])
+                    spans += Span(pending.toString() + match.groupValues[1], link = match.groupValues[2])
+                    pending.setLength(0)
                     index += match.value.length
                     continue
                 }
