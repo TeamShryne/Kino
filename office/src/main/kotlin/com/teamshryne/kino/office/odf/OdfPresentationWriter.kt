@@ -107,6 +107,8 @@ private class OdpBuilder(
     private val theme: OfficeTheme,
     private val issues: MutableList<ReportIssue>,
 ) {
+    private val self get() = this
+
 
     private val automaticStyles = StringBuilder()
     private var graphicCounter = 0
@@ -1326,7 +1328,6 @@ private class OdpBuilder(
         content: String?,
         verticalAlign: String = "top",
     ) {
-    private val self get() = this
 {
         page.append("<draw:frame draw:style-name=\"${graphicStyle(verticalAlign = verticalAlign)}\" ")
         page.append("svg:x=\"${cm(x)}\" svg:y=\"${cm(y)}\" svg:width=\"${cm(width)}\" svg:height=\"${cm(height)}\">")

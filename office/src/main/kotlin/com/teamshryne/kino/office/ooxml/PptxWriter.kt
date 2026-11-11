@@ -89,6 +89,8 @@ private class PptxPackage(
     private val theme: OfficeTheme,
     private val issues: MutableList<ReportIssue>,
 ) {
+    private val self get() = this
+
 
     private val media = mutableListOf<Pair<String, ByteArray>>()
     private var mediaCounter = 0
@@ -1347,7 +1349,6 @@ private class SlidePainter(
         anchor: String = "t",
         inset: Int = 0,
     ) {
-    private val self get() = this
 {
         canvas.add(
             buildString {
