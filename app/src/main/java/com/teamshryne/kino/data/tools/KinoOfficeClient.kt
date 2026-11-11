@@ -17,7 +17,14 @@ class KinoOfficeClient(private val context: Context) {
             val method = officeClass.getMethod("render", Context::class.java, JSONObject::class.java)
             method.invoke(null, context, arguments) as? String ?: error("Kino Office did not return a filename.")
         } catch (error: Throwable) {
-            throw IllegalStateException("Kino Office render failed: ${error::class.qualifiedName}: ${error.message ?: error}", error)
+            val cause = if (error is java.lang.reflect.InvocationTargetException) error.targetException ?: error.cause ?: error else error.cause ?: error
+            val detail = buildString {
+                append(cause::class.qualifiedName ?: cause::class.simpleName)
+                append(": ")
+                append(cause.message ?: cause.toString())
+                cause.stackTrace.take(8).forEach { append("\n\tat ").append(it) }
+            }
+            throw IllegalStateException("Kino Office render failed: $detail", cause)
         }
     }
 }
