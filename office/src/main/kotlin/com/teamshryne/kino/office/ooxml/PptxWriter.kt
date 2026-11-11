@@ -584,31 +584,31 @@ private class SlidePainter(
         val title = slide.title.orEmpty().ifBlank { "Presentation" }
         val subtitle = slide.subtitle.orEmpty()
         val boxWidth = SLIDE_WIDTH - 2 * 1143000
-        val titleHeight = this@PptxPackage.measure(title, SIZE_TITLE / 100.0, boxWidth)
-        val subtitleHeight = if (subtitle.isBlank()) 0 else this@PptxPackage.measure(subtitle, 20.0, boxWidth)
+        val titleHeight = self.measure(title, SIZE_TITLE / 100.0, boxWidth)
+        val subtitleHeight = if (subtitle.isBlank()) 0 else self.measure(subtitle, 20.0, boxWidth)
         val ruleGap = 220000
         val ruleHeight = 40000
         val gap = if (subtitle.isBlank()) 0 else 200000
         val total = titleHeight + ruleGap + ruleHeight + gap + subtitleHeight
         var y = (SLIDE_HEIGHT - total) / 2
 
-        this@PptxPackage.textBox(
+        self.textBox(
             x = 1143000,
             y = y,
             w = boxWidth,
             h = titleHeight,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_TITLE, theme.accent, theme.serifFont, bold = true), align = "ctr"),
+            paragraphs = self.paragraph(self.runs(title, SIZE_TITLE, theme.accent, theme.serifFont, bold = true), align = "ctr"),
         )
         y += titleHeight + ruleGap
-        this@PptxPackage.shape(x = SLIDE_WIDTH / 2 - 571500, y = y, w = 1143000, h = ruleHeight, fill = theme.accent)
+        self.shape(x = SLIDE_WIDTH / 2 - 571500, y = y, w = 1143000, h = ruleHeight, fill = theme.accent)
         y += ruleHeight + gap
         if (subtitle.isNotBlank()) {
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = 1143000,
                 y = y,
                 w = boxWidth,
                 h = subtitleHeight,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(subtitle, 2000, theme.inkSoft, theme.sansFont), align = "ctr"),
+                paragraphs = self.paragraph(self.runs(subtitle, 2000, theme.inkSoft, theme.sansFont), align = "ctr"),
             )
         }
     }
@@ -619,30 +619,30 @@ private class SlidePainter(
         val bandHeight = 1300000
         var y = (SLIDE_HEIGHT - bandHeight) / 2 - 260000
 
-        this@PptxPackage.textBox(
+        self.textBox(
             x = MARGIN,
             y = y - 320000,
             w = CONTENT_WIDTH,
             h = 240000,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run("SECTION", SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 300)),
+            paragraphs = self.paragraph(self.run("SECTION", SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 300)),
         )
-        this@PptxPackage.shape(x = MARGIN, y = y, w = CONTENT_WIDTH, h = bandHeight, fill = theme.accent)
+        self.shape(x = MARGIN, y = y, w = CONTENT_WIDTH, h = bandHeight, fill = theme.accent)
         val bandText = colorsOn(theme.accent)
-        this@PptxPackage.textBox(
+        self.textBox(
             x = MARGIN + 200000,
             y = y,
             w = CONTENT_WIDTH - 400000,
             h = bandHeight,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_SECTION, bandText, theme.serifFont, bold = true), align = "ctr"),
+            paragraphs = self.paragraph(self.runs(title, SIZE_SECTION, bandText, theme.serifFont, bold = true), align = "ctr"),
             anchor = "ctr",
         )
         if (subtitle.isNotBlank()) {
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = MARGIN,
                 y = y + bandHeight + 240000,
                 w = CONTENT_WIDTH,
-                h = this@PptxPackage.measure(subtitle, 18.0, CONTENT_WIDTH),
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(subtitle, 1800, theme.inkSoft, theme.sansFont), align = "ctr"),
+                h = self.measure(subtitle, 18.0, CONTENT_WIDTH),
+                paragraphs = self.paragraph(self.runs(subtitle, 1800, theme.inkSoft, theme.sansFont), align = "ctr"),
             )
         }
     }
@@ -653,38 +653,38 @@ private class SlidePainter(
         val attribution = slide.blocks.filterIsInstance<QuoteBlock>().firstOrNull()?.attribution
         var y = MARGIN
         if (title.isNotBlank()) {
-            val height = this@PptxPackage.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(
+            val height = self.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
+            self.textBox(
                 x = MARGIN,
                 y = y,
                 w = CONTENT_WIDTH,
                 h = height,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
+                paragraphs = self.paragraph(self.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
             )
             y += height + 300000
         }
         val textX = MARGIN + 320000
         val textWidth = CONTENT_WIDTH - 320000
-        val quoteHeight = this@PptxPackage.measure(quote, SIZE_QUOTE / 100.0, textWidth)
-        val attributionHeight = if (attribution.isNullOrBlank()) 0 else this@PptxPackage.measure(attribution, 14.0, textWidth)
+        val quoteHeight = self.measure(quote, SIZE_QUOTE / 100.0, textWidth)
+        val attributionHeight = if (attribution.isNullOrBlank()) 0 else self.measure(attribution, 14.0, textWidth)
         val total = quoteHeight + (if (attributionHeight > 0) 200000 + attributionHeight else 0)
         val start = max(y, (SLIDE_HEIGHT - total) / 2)
 
-        this@PptxPackage.shape(x = MARGIN, y = start, w = 50800, h = total, fill = theme.accent)
-        this@PptxPackage.textBox(
+        self.shape(x = MARGIN, y = start, w = 50800, h = total, fill = theme.accent)
+        self.textBox(
             x = textX,
             y = start,
             w = textWidth,
             h = quoteHeight,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(quote, SIZE_QUOTE, theme.ink, theme.serifFont, italic = true)),
+            paragraphs = self.paragraph(self.runs(quote, SIZE_QUOTE, theme.ink, theme.serifFont, italic = true)),
         )
         if (attributionHeight > 0) {
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = textX,
                 y = start + quoteHeight + 200000,
                 w = textWidth,
                 h = attributionHeight,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs("— $attribution", 1400, theme.muted, theme.sansFont)),
+                paragraphs = self.paragraph(self.runs("— $attribution", 1400, theme.muted, theme.sansFont)),
             )
         }
     }
@@ -698,22 +698,22 @@ private class SlidePainter(
         var y = MARGIN
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
-            val height = this@PptxPackage.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(
+            val height = self.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
+            self.textBox(
                 x = MARGIN,
                 y = y,
                 w = CONTENT_WIDTH,
                 h = height,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
+                paragraphs = self.paragraph(self.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
             )
             y += height + 120000
-            this@PptxPackage.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
+            self.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
             y += 40000 + 320000
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
-            val height = this@PptxPackage.measure(subtitle, 16.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
+            val height = self.measure(subtitle, 16.0, CONTENT_WIDTH)
+            self.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = self.paragraph(self.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
             y += height + 260000
         }
 
@@ -723,7 +723,7 @@ private class SlidePainter(
         val tileHeight = 1500000
         items.forEachIndexed { index, item ->
             val x = MARGIN + index * (tileWidth + gap)
-            this@PptxPackage.shape(
+            self.shape(
                 x = x,
                 y = y,
                 w = tileWidth,
@@ -736,8 +736,8 @@ private class SlidePainter(
             )
             val inner = 180000
             val paragraphs = buildString {
-                append(this@PptxPackage.paragraph(this@PptxPackage.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120), align = "l"))
-                append(this@PptxPackage.paragraph(this@PptxPackage.runs(item.value, SIZE_STAT_VALUE, theme.accent, theme.serifFont, bold = true)))
+                append(self.paragraph(self.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120), align = "l"))
+                append(self.paragraph(self.runs(item.value, SIZE_STAT_VALUE, theme.accent, theme.serifFont, bold = true)))
                 val delta = item.delta
                 if (!delta.isNullOrBlank()) {
                     val deltaColor = when (item.positive) {
@@ -745,10 +745,10 @@ private class SlidePainter(
                         false -> theme.negative
                         null -> theme.muted
                     }
-                    append(this@PptxPackage.paragraph(this@PptxPackage.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
+                    append(self.paragraph(self.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
                 }
             }
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = x + inner,
                 y = y + inner,
                 w = tileWidth - inner * 2,
@@ -769,22 +769,22 @@ private class SlidePainter(
         var y = MARGIN
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
-            val height = this@PptxPackage.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(
+            val height = self.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
+            self.textBox(
                 x = MARGIN,
                 y = y,
                 w = CONTENT_WIDTH,
                 h = height,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
+                paragraphs = self.paragraph(self.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
             )
             y += height + 120000
-            this@PptxPackage.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
+            self.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
             y += 40000 + 300000
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
-            val height = this@PptxPackage.measure(subtitle, 16.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
+            val height = self.measure(subtitle, 16.0, CONTENT_WIDTH)
+            self.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = self.paragraph(self.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
             y += height + 260000
         }
 
@@ -798,7 +798,7 @@ private class SlidePainter(
                 listOf(slide.blocks.take(half), slide.blocks.drop(half))
             }
         }
-        this@PptxPackage.shape(x = MARGIN + columnWidth + columnGap / 2 - 6350, y = y, w = 12700, h = 3900000, fill = theme.border)
+        self.shape(x = MARGIN + columnWidth + columnGap / 2 - 6350, y = y, w = 12700, h = 3900000, fill = theme.border)
         columns.forEachIndexed { index, blocks ->
             val x = MARGIN + index * (columnWidth + columnGap)
             flow(blocks, x, y, columnWidth)
@@ -809,42 +809,42 @@ private class SlidePainter(
         var y = MARGIN
         val title = slide.title.orEmpty()
         if (title.isNotBlank()) {
-            val height = this@PptxPackage.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(
+            val height = self.measure(title, SIZE_SLIDE_TITLE / 100.0, CONTENT_WIDTH)
+            self.textBox(
                 x = MARGIN,
                 y = y,
                 w = CONTENT_WIDTH,
                 h = height,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
+                paragraphs = self.paragraph(self.runs(title, SIZE_SLIDE_TITLE, theme.accent, theme.serifFont, bold = true)),
             )
             y += height + 120000
-            this@PptxPackage.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
+            self.shape(x = MARGIN, y = y, w = 900000, h = 40000, fill = theme.accent)
             y += 40000 + 300000
         }
         val subtitle = slide.subtitle.orEmpty()
         if (subtitle.isNotBlank()) {
-            val height = this@PptxPackage.measure(subtitle, 16.0, CONTENT_WIDTH)
-            this@PptxPackage.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
+            val height = self.measure(subtitle, 16.0, CONTENT_WIDTH)
+            self.textBox(x = MARGIN, y = y, w = CONTENT_WIDTH, h = height, paragraphs = self.paragraph(self.runs(subtitle, SIZE_BODY, theme.inkSoft, theme.sansFont)))
             y += height + 260000
         }
         flow(slide.blocks, MARGIN, y, CONTENT_WIDTH)
     }
 
     private fun paintFooter(number: Int, deckTitle: String) {
-        this@PptxPackage.shape(x = MARGIN, y = FOOTER_TOP - 70000, w = CONTENT_WIDTH, h = 9525, fill = theme.border, name = "Footer rule")
-        this@PptxPackage.textBox(
+        self.shape(x = MARGIN, y = FOOTER_TOP - 70000, w = CONTENT_WIDTH, h = 9525, fill = theme.border, name = "Footer rule")
+        self.textBox(
             x = MARGIN,
             y = FOOTER_TOP,
             w = CONTENT_WIDTH - 1200000,
             h = 220000,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(deckTitle, SIZE_TINY, theme.muted, theme.sansFont)),
+            paragraphs = self.paragraph(self.run(deckTitle, SIZE_TINY, theme.muted, theme.sansFont)),
         )
-        this@PptxPackage.textBox(
+        self.textBox(
             x = SLIDE_WIDTH - MARGIN - 1200000,
             y = FOOTER_TOP,
             w = 1200000,
             h = 220000,
-            paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(number.toString(), SIZE_TINY, theme.muted, theme.sansFont), align = "r"),
+            paragraphs = self.paragraph(self.run(number.toString(), SIZE_TINY, theme.muted, theme.sansFont), align = "r"),
         )
     }
 
@@ -860,15 +860,15 @@ private class SlidePainter(
 
     private fun paintBlock(block: Block, x: Int, y: Int, width: Int): Int { return when (block) {
         is ParagraphBlock -> {
-            val height = this@PptxPackage.measure(block.text, SIZE_BODY / 100.0, width)
-            this@PptxPackage.textBox(x, y, width, height, this@PptxPackage.paragraph(this@PptxPackage.runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))
+            val height = self.measure(block.text, SIZE_BODY / 100.0, width)
+            self.textBox(x, y, width, height, self.paragraph(self.runs(block.text, SIZE_BODY, theme.ink, theme.sansFont)))
             y + height + 150000
         }
 
         is ListBlock -> {
             val paragraphs = block.items.joinToString("") { item ->
-                this@PptxPackage.paragraph(
-                    this@PptxPackage.runs(item, SIZE_BODY, theme.ink, theme.sansFont),
+                self.paragraph(
+                    self.runs(item, SIZE_BODY, theme.ink, theme.sansFont),
                     bullet = if (block.ordered) null else "-",
                     ordered = block.ordered,
                     bulletColor = theme.accent,
@@ -877,8 +877,8 @@ private class SlidePainter(
                     spaceAfter = 700,
                 )
             }
-            val height = block.items.sumOf { this@PptxPackage.measure(it, SIZE_BODY / 100.0, width - 228600) } + block.items.size * 9000
-            this@PptxPackage.textBox(x, y, width, height, paragraphs)
+            val height = block.items.sumOf { self.measure(it, SIZE_BODY / 100.0, width - 228600) } + block.items.size * 9000
+            self.textBox(x, y, width, height, paragraphs)
             y + height + 170000
         }
 
@@ -889,8 +889,8 @@ private class SlidePainter(
                 else -> SIZE_BODY + 200
             }
             val text = if (block.numbered) "${block.level}. ${block.text}" else block.text
-            val height = this@PptxPackage.measure(text, size / 100.0, width)
-            this@PptxPackage.textBox(x, y, width, height, this@PptxPackage.paragraph(this@PptxPackage.runs(text, size, theme.ink, theme.serifFont, bold = true)))
+            val height = self.measure(text, size / 100.0, width)
+            self.textBox(x, y, width, height, self.paragraph(self.runs(text, size, theme.ink, theme.serifFont, bold = true)))
             y + height + 130000
         }
 
@@ -907,11 +907,11 @@ private class SlidePainter(
             val tileHeight = 1300000
             items.forEachIndexed { index, item ->
                 val tileX = x + index * (tileWidth + gap)
-                this@PptxPackage.shape(tileX, y, tileWidth, tileHeight, geom = "roundRect", adj = 8000, fill = theme.surface, line = theme.border, name = "Stat tile")
+                self.shape(tileX, y, tileWidth, tileHeight, geom = "roundRect", adj = 8000, fill = theme.surface, line = theme.border, name = "Stat tile")
                 val inner = 160000
                 val paragraphs = buildString {
-                    append(this@PptxPackage.paragraph(this@PptxPackage.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120)))
-                    append(this@PptxPackage.paragraph(this@PptxPackage.runs(item.value, SIZE_STAT_VALUE - 600, theme.accent, theme.serifFont, bold = true)))
+                    append(self.paragraph(self.run(item.label.uppercase(), SIZE_SMALL, theme.muted, theme.sansFont, bold = true, spacing = 120)))
+                    append(self.paragraph(self.runs(item.value, SIZE_STAT_VALUE - 600, theme.accent, theme.serifFont, bold = true)))
                     val delta = item.delta
                     if (!delta.isNullOrBlank()) {
                         val deltaColor = when (item.positive) {
@@ -919,10 +919,10 @@ private class SlidePainter(
                             false -> theme.negative
                             null -> theme.muted
                         }
-                        append(this@PptxPackage.paragraph(this@PptxPackage.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
+                        append(self.paragraph(self.run(delta, SIZE_SMALL, deltaColor, theme.sansFont, bold = true)))
                     }
                 }
-                this@PptxPackage.textBox(tileX + inner, y + inner, tileWidth - inner * 2, tileHeight - inner * 2, paragraphs, anchor = "ctr")
+                self.textBox(tileX + inner, y + inner, tileWidth - inner * 2, tileHeight - inner * 2, paragraphs, anchor = "ctr")
             }
             y + tileHeight + 200000
         }
@@ -935,17 +935,17 @@ private class SlidePainter(
             val labelWidth = (width * 35) / 100
             var cursor = y
             block.items.forEach { item ->
-                val labelHeight = this@PptxPackage.measure(item.label, SIZE_BODY / 100.0, labelWidth - 120000)
-                val valueHeight = this@PptxPackage.measure(item.value, SIZE_BODY / 100.0, width - labelWidth - 120000)
+                val labelHeight = self.measure(item.label, SIZE_BODY / 100.0, labelWidth - 120000)
+                val valueHeight = self.measure(item.value, SIZE_BODY / 100.0, width - labelWidth - 120000)
                 val rowHeight = max(labelHeight, valueHeight)
-                this@PptxPackage.textBox(x, cursor, labelWidth - 120000, rowHeight, this@PptxPackage.paragraph(this@PptxPackage.runs(item.label, SIZE_BODY, theme.inkSoft, theme.sansFont, bold = true)))
-                this@PptxPackage.textBox(x + labelWidth, cursor, width - labelWidth, rowHeight, this@PptxPackage.paragraph(this@PptxPackage.runs(item.value, SIZE_BODY, theme.ink, theme.sansFont)))
+                self.textBox(x, cursor, labelWidth - 120000, rowHeight, self.paragraph(self.runs(item.label, SIZE_BODY, theme.inkSoft, theme.sansFont, bold = true)))
+                self.textBox(x + labelWidth, cursor, width - labelWidth, rowHeight, self.paragraph(self.runs(item.value, SIZE_BODY, theme.ink, theme.sansFont)))
                 cursor += rowHeight + 60000
-                this@PptxPackage.shape(x = x, y = cursor - 30000, w = width, h = 9525, fill = theme.border)
+                self.shape(x = x, y = cursor - 30000, w = width, h = 9525, fill = theme.border)
                 cursor += 30000
                 if (!item.hint.isNullOrBlank()) {
-                    val hintHeight = this@PptxPackage.measure(item.hint, SIZE_SMALL / 100.0, width)
-                    this@PptxPackage.textBox(x, cursor, width, hintHeight, this@PptxPackage.paragraph(this@PptxPackage.run(item.hint, SIZE_SMALL, theme.muted, theme.sansFont)))
+                    val hintHeight = self.measure(item.hint, SIZE_SMALL / 100.0, width)
+                    self.textBox(x, cursor, width, hintHeight, self.paragraph(self.run(item.hint, SIZE_SMALL, theme.muted, theme.sansFont)))
                     cursor += hintHeight + 60000
                 }
             }
@@ -954,17 +954,17 @@ private class SlidePainter(
 
         is QuoteBlock -> {
             val textWidth = width - 320000
-            val height = this@PptxPackage.measure(block.text, 2000.0, textWidth)
-            val attributionHeight = if (block.attribution.isNullOrBlank()) 0 else this@PptxPackage.measure(block.attribution, 13.0, textWidth)
-            this@PptxPackage.shape(x = x, y = y, w = 50800, h = height + attributionHeight, fill = theme.accent)
-            this@PptxPackage.textBox(x + 320000, y, textWidth, height, this@PptxPackage.paragraph(this@PptxPackage.runs(block.text, 2000, theme.ink, theme.serifFont, italic = true)))
+            val height = self.measure(block.text, 2000.0, textWidth)
+            val attributionHeight = if (block.attribution.isNullOrBlank()) 0 else self.measure(block.attribution, 13.0, textWidth)
+            self.shape(x = x, y = y, w = 50800, h = height + attributionHeight, fill = theme.accent)
+            self.textBox(x + 320000, y, textWidth, height, self.paragraph(self.runs(block.text, 2000, theme.ink, theme.serifFont, italic = true)))
             if (attributionHeight > 0) {
-                this@PptxPackage.textBox(
+                self.textBox(
                     x + 320000,
                     y = y + height + 90000,
                     w = textWidth,
                     h = attributionHeight,
-                    paragraphs = this@PptxPackage.paragraph(this@PptxPackage.runs("— ${block.attribution}", 1300, theme.muted, theme.sansFont)),
+                    paragraphs = self.paragraph(self.runs("— ${block.attribution}", 1300, theme.muted, theme.sansFont)),
                 )
             }
             y + height + attributionHeight + 180000
@@ -972,37 +972,37 @@ private class SlidePainter(
 
         is CodeBlock -> {
             val inner = 200000
-            val height = this@PptxPackage.measure(block.text, 1300.0, width - inner * 2) + inner * 2
-            this@PptxPackage.shape(x, y, width, height, fill = theme.surfaceAlt, line = theme.border, name = "Code")
+            val height = self.measure(block.text, 1300.0, width - inner * 2) + inner * 2
+            self.shape(x, y, width, height, fill = theme.surfaceAlt, line = theme.border, name = "Code")
             val paragraphs = buildString {
                 if (!block.language.isNullOrBlank()) {
-                    append(this@PptxPackage.paragraph(this@PptxPackage.run(block.language.uppercase(), SIZE_TINY, theme.muted, theme.sansFont, bold = true, spacing = 100)))
+                    append(self.paragraph(self.run(block.language.uppercase(), SIZE_TINY, theme.muted, theme.sansFont, bold = true, spacing = 100)))
                 }
-                append(this@PptxPackage.paragraph(this@PptxPackage.runs(block.text, 1300, theme.ink, theme.monoFont)))
+                append(self.paragraph(self.runs(block.text, 1300, theme.ink, theme.monoFont)))
             }
-            this@PptxPackage.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
+            self.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
             y + height + 180000
         }
 
         is CalloutBlock -> {
-            val accent = this@PptxPackage.calloutColor(block.kind)
+            val accent = self.calloutColor(block.kind)
             val inner = 220000
-            val titleHeight = if (block.title.isNullOrBlank()) 0 else this@PptxPackage.measure(block.title, SIZE_BODY / 100.0, width - inner * 2)
-            val height = this@PptxPackage.measure(block.text, SIZE_BODY / 100.0, width - inner * 2) + titleHeight + inner * 2
-            this@PptxPackage.shape(x, y, width, height, geom = "roundRect", adj = 6000, fill = Colors.lighten(accent, 0.88), line = Colors.lighten(accent, 0.55), name = "Callout")
-            this@PptxPackage.shape(x = x, y = y, w = 60000, h = height, fill = accent, name = "Callout accent")
+            val titleHeight = if (block.title.isNullOrBlank()) 0 else self.measure(block.title, SIZE_BODY / 100.0, width - inner * 2)
+            val height = self.measure(block.text, SIZE_BODY / 100.0, width - inner * 2) + titleHeight + inner * 2
+            self.shape(x, y, width, height, geom = "roundRect", adj = 6000, fill = Colors.lighten(accent, 0.88), line = Colors.lighten(accent, 0.55), name = "Callout")
+            self.shape(x = x, y = y, w = 60000, h = height, fill = accent, name = "Callout accent")
             val paragraphs = buildString {
                 if (titleHeight > 0) {
-                    append(this@PptxPackage.paragraph(this@PptxPackage.runs(block.title.orEmpty(), SIZE_BODY, Colors.darken(accent, 0.25), theme.sansFont, bold = true)))
+                    append(self.paragraph(self.runs(block.title.orEmpty(), SIZE_BODY, Colors.darken(accent, 0.25), theme.sansFont, bold = true)))
                 }
-                append(this@PptxPackage.paragraph(this@PptxPackage.runs(block.text, SIZE_BODY, theme.inkSoft, theme.sansFont)))
+                append(self.paragraph(self.runs(block.text, SIZE_BODY, theme.inkSoft, theme.sansFont)))
             }
-            this@PptxPackage.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
+            self.textBox(x + inner, y + inner - 20000, width - inner * 2, height - inner * 2 + 40000, paragraphs)
             y + height + 180000
         }
 
         is DividerBlock -> {
-            this@PptxPackage.shape(x, y + 80000, width, 9525, fill = theme.border, name = "Divider")
+            self.shape(x, y + 80000, width, 9525, fill = theme.border, name = "Divider")
             y + 260000
         }
 
@@ -1019,14 +1019,14 @@ private class SlidePainter(
         val headerHeight = max(
             330000,
             block.columns.mapIndexed { index, column ->
-                this@PptxPackage.measure(column.header, SIZE_SMALL / 100.0, widths.getOrElse(index) { widths.last() } - 200000)
+                self.measure(column.header, SIZE_SMALL / 100.0, widths.getOrElse(index) { widths.last() } - 200000)
             }.maxOrNull() ?: 330000,
         )
         val rowHeights = block.rows.map { row ->
             var height = 300000
             row.forEachIndexed { index, cell ->
                 val cellWidth = widths.getOrElse(index) { widths.last() }
-                height = max(height, this@PptxPackage.measure(cell, 1100.0, cellWidth - 200000) + 120000)
+                height = max(height, self.measure(cell, 1100.0, cellWidth - 200000) + 120000)
             }
             height
         }
@@ -1082,8 +1082,8 @@ private class SlidePainter(
         append("<a:tc>")
         append("<a:txBody><a:bodyPr/><a:lstStyle/>")
         append(
-            this@PptxPackage.paragraph(
-                this@PptxPackage.runs(text, size, if (header) "#FFFFFF" else theme.ink, theme.sansFont, bold = header),
+            self.paragraph(
+                self.runs(text, size, if (header) "#FFFFFF" else theme.ink, theme.sansFont, bold = header),
                 align = align,
             ),
         )
@@ -1118,8 +1118,8 @@ private class SlidePainter(
     private fun paintChart(block: ChartBlock, x: Int, y: Int, width: Int): Int {
         var cursor = y
         if (!block.title.isNullOrBlank()) {
-            val height = this@PptxPackage.measure(block.title, 13.0, width)
-            this@PptxPackage.textBox(x, cursor, width, height, this@PptxPackage.paragraph(this@PptxPackage.runs(block.title, 1300, theme.ink, theme.sansFont, bold = true)))
+            val height = self.measure(block.title, 13.0, width)
+            self.textBox(x, cursor, width, height, self.paragraph(self.runs(block.title, 1300, theme.ink, theme.sansFont, bold = true)))
             cursor += height + 100000
         }
         val kindLabel = when (block.kind) {
@@ -1156,7 +1156,7 @@ private class SlidePainter(
         val barWidth = max(60000, (groupWidth * 0.66 - barGap * (barCount - 1)) / barCount)
         val colors = chartPalette(block.series.size)
 
-        this@PptxPackage.shape(x = x, y = baseline, w = width, h = 9525, fill = theme.border, name = "Chart axis")
+        self.shape(x = x, y = baseline, w = width, h = 9525, fill = theme.border, name = "Chart axis")
 
         categories.forEachIndexed { index, category ->
             val groupStart = x + groupWidth * index + (groupWidth - (barWidth * barCount + barGap * (barCount - 1))) / 2
@@ -1165,21 +1165,21 @@ private class SlidePainter(
                 val barHeight = ((abs(value) / maxValue) * (plotHeight - valueLabelHeight)).roundToInt()
                 val barX = groupStart + seriesIndex * (barWidth + barGap)
                 val barY = baseline - barHeight
-                this@PptxPackage.shape(barX, barY, barWidth, barHeight, fill = colors[seriesIndex], name = "Bar")
-                this@PptxPackage.textBox(
+                self.shape(barX, barY, barWidth, barHeight, fill = colors[seriesIndex], name = "Bar")
+                self.textBox(
                     x = barX - barWidth,
                     y = max(y, barY - valueLabelHeight),
                     w = barWidth * 3,
                     h = valueLabelHeight,
-                    paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(formatValue(value), 900, theme.muted, theme.sansFont), align = "ctr"),
+                    paragraphs = self.paragraph(self.run(formatValue(value), 900, theme.muted, theme.sansFont), align = "ctr"),
                 )
             }
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = x + groupWidth * index,
                 y = baseline + 60000,
                 w = groupWidth,
                 h = labelHeight,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(category, 1000, theme.muted, theme.sansFont), align = "ctr"),
+                paragraphs = self.paragraph(self.run(category, 1000, theme.muted, theme.sansFont), align = "ctr"),
             )
         }
         return plotHeight + labelHeight + 80000
@@ -1197,25 +1197,25 @@ private class SlidePainter(
 
         categories.forEachIndexed { index, category ->
             val rowTop = y + index * rowHeight
-            this@PptxPackage.textBox(
+            self.textBox(
                 x = x,
                 y = rowTop,
                 w = labelWidth - 100000,
                 h = rowHeight - 120000,
-                paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(category, 1000, theme.inkSoft, theme.sansFont), align = "r"),
+                paragraphs = self.paragraph(self.run(category, 1000, theme.inkSoft, theme.sansFont), align = "r"),
             )
             block.series.forEachIndexed { seriesIndex, series ->
                 val value = series.values.getOrNull(index) ?: 0.0
                 val barHeight = ((rowHeight - 180000) / block.series.size).coerceAtLeast(60000)
                 val barY = rowTop + 90000 + seriesIndex * barHeight
                 val barWidth = max(20000, ((abs(value) / maxValue) * plotWidth).roundToInt())
-                this@PptxPackage.shape(x + labelWidth, barY, barWidth, barHeight - 20000, fill = colors[seriesIndex], name = "Bar")
-                this@PptxPackage.textBox(
+                self.shape(x + labelWidth, barY, barWidth, barHeight - 20000, fill = colors[seriesIndex], name = "Bar")
+                self.textBox(
                     x = x + labelWidth + barWidth + 80000,
                     y = barY - 20000,
                     w = 700000,
                     h = barHeight,
-                    paragraphs = this@PptxPackage.paragraph(this@PptxPackage.run(formatValue(value), 900, theme.muted, theme.sansFont)),
+                    paragraphs = self.paragraph(self.run(formatValue(value), 900, theme.muted, theme.sansFont)),
                 )
             }
         }
@@ -1282,8 +1282,8 @@ private class SlidePainter(
         canvas.add(picture)
         var cursor = y + pictureHeight + 60000
         if (!block.caption.isNullOrBlank()) {
-            val height = this@PptxPackage.measure(block.caption, SIZE_SMALL / 100.0, width)
-            this@PptxPackage.textBox(x, cursor, width, height, this@PptxPackage.paragraph(this@PptxPackage.run(block.caption, SIZE_SMALL, theme.muted, theme.sansFont), align = "ctr"))
+            val height = self.measure(block.caption, SIZE_SMALL / 100.0, width)
+            self.textBox(x, cursor, width, height, self.paragraph(self.run(block.caption, SIZE_SMALL, theme.muted, theme.sansFont), align = "ctr"))
             cursor += height
         }
         return cursor + 120000
@@ -1291,7 +1291,7 @@ private class SlidePainter(
 
     /* ------------------------------- helpers ------------------------------ */
 
-    private fun this@PptxPackage.calloutColor(kind: CalloutKind): String = when (kind) {
+    private fun self.calloutColor(kind: CalloutKind): String = when (kind) {
         CalloutKind.INFO -> theme.accent
         CalloutKind.NOTE -> "#4E7CD9"
         CalloutKind.WARNING -> theme.warning
@@ -1309,7 +1309,7 @@ private class SlidePainter(
         else -> "%.2f".format(value)
     }
 
-    private fun this@PptxPackage.measure(text: String, sizePt: Double, widthEmu: Int): Int {
+    private fun self.measure(text: String, sizePt: Double, widthEmu: Int): Int {
         if (text.isBlank()) return 0
         val lines = estimateLines(text, sizePt, widthEmu)
         return (lines * sizePt * 1.25 * 12700).roundToInt()
@@ -1332,7 +1332,7 @@ private class SlidePainter(
 
     /* ------------------------------ primitives --------------------------- */
 
-    private fun this@PptxPackage.shape(
+    private fun self.shape(
         x: Int,
         y: Int,
         w: Int,
@@ -1347,6 +1347,8 @@ private class SlidePainter(
         anchor: String = "t",
         inset: Int = 0,
     ) {
+    private val self get() = this
+{
         canvas.add(
             buildString {
                 append("<p:sp><p:nvSpPr><p:cNvPr id=\"").append(canvas.nextShapeId()).append("\" name=\"")
@@ -1381,7 +1383,7 @@ private class SlidePainter(
         )
     }
 
-    private fun this@PptxPackage.textBox(
+    private fun self.textBox(
         x: Int,
         y: Int,
         w: Int,
@@ -1404,7 +1406,7 @@ private class SlidePainter(
         )
     }
 
-    private fun this@PptxPackage.paragraph(
+    private fun self.paragraph(
         runs: String,
         align: String = "l",
         bullet: String? = null,
@@ -1439,7 +1441,7 @@ private class SlidePainter(
         append("</a:p>")
     }
 
-    private fun this@PptxPackage.run(
+    private fun self.run(
         text: String,
         size: Int,
         color: String,
@@ -1464,7 +1466,7 @@ private class SlidePainter(
         }
     }
 
-    private fun this@PptxPackage.runs(
+    private fun self.runs(
         text: String,
         size: Int,
         color: String,
@@ -1481,7 +1483,7 @@ private class SlidePainter(
                 span.code -> Colors.darken(color, 0.1)
                 else -> color
             }
-            this@PptxPackage.run(
+            self.run(
                 text = span.text,
                 size = size,
                 color = spanColor,

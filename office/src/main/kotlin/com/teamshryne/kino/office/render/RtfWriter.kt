@@ -203,7 +203,12 @@ object RtfWriter {
             edges.forEach { append("\\cellx").append(it) }
             repeat(columnCount) { index ->
                 val value = row.getOrNull(index).orEmpty()
-                val align = table.effectiveAlignments.getOrElse(index) { com.teamshryne.kino.office.model.ColumnAlignment.LEFT }
+                val colAlign = table.effectiveAlignments.getOrElse(index) { com.teamshryne.kino.office.model.ColumnAlignment.LEFT }
+                val align = when (colAlign) {
+                    com.teamshryne.kino.office.model.ColumnAlignment.CENTER -> Align.CENTER
+                    com.teamshryne.kino.office.model.ColumnAlignment.RIGHT -> Align.RIGHT
+                    else -> Align.LEFT
+                }
                 append(cell(value, align = align))
                 append("\\cell ")
             }
