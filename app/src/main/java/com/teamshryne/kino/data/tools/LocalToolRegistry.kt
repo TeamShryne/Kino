@@ -3,6 +3,8 @@ package com.teamshryne.kino.data.tools
 import com.teamshryne.kino.domain.model.KinoMessage
 import com.teamshryne.kino.domain.model.MessageRole
 import com.teamshryne.kino.data.browser.KinoBrowserSession
+import com.teamshryne.kino.office.OfficeFamily
+import com.teamshryne.kino.office.OfficeFormat
 import org.json.JSONObject
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -37,6 +39,7 @@ class LocalToolRegistry(
     private val messages: suspend (String) -> List<KinoMessage>,
     private val renderPdf: suspend (String, List<String>, Boolean) -> String,
     private val browse: suspend (JSONObject) -> String,
+    private val office: OfficeToolExecutor? = null,
     private val pdfLimits: () -> PdfLimits = { PdfLimits() },
 ) {
     suspend fun execute(chatId: String, name: String, arguments: JSONObject, browserEnabled: Boolean): LocalToolResult {
@@ -65,6 +68,14 @@ class LocalToolRegistry(
                 if (arguments.has("pages")) require(arguments.optJSONArray("pages") != null) { "pages must be an array of HTML strings." }
                 require(arguments.has("pages") != arguments.has("html")) { "Provide exactly one of pages or html for html_to_pdf." }
             }
+            "create_document", "create_spreadsheet", "create_presentation", "create_data_file" -> {
+                stringArgument("format", true)
+                stringArgument("theme", false)
+                require(arguments.opt("document") != null) { "document must be a JSON object describing the file." }
+                val format = officeFormat(arguments, familyFor(name))
+                require(format != OfficeFormat.PDF || name == "create_document") { "PDF is only available from create_document." }
+            }
+            "document_help" -> stringArgument("topic", false)
             "browser" -> {
                 stringArgument("action", true)
                 require(browserEnabled) { "Web browsing is turned off. Ask the user to enable Web browsing in Message options." }
@@ -128,14 +139,47 @@ class LocalToolRegistry(
             val filename = renderPdf(title, pages, paged)
             LocalToolResult(name, "Created PDF", JSONObject().put("filename", filename).put("title", title).put("pages", pages.size).toString())
         }
+        "create_document", "create_spreadsheet", "create_presentation", "create_data_file" -> {
+            val executor = requireNotNull(office) { "Office export is not available." }
+            val format = officeFormat(arguments, familyFor(name))
+            val payload = documentPayload(arguments)
+            executor.create(name, format, payload, arguments.optString("theme").ifBlank { null })
+        }
+        "document_help" -> {
+            val executor = requireNotNull(office) { "Office export is not available." }
+            executor.help(arguments.optString("topic").ifBlank { null })
+        }
         "browser" -> LocalToolResult(name, "Browsed website", browse(arguments).take(KinoBrowserSession.MAX_BROWSER_RESULT_CHARS))
         else -> error("Unknown tool: $name")
         }
         return result
     }
 
-    private suspend fun search(chatId: String, args: JSONObject): String {
-        val query = args.getString("query").trim()
+    private fun familyFor(toolName: String): OfficeFamily = when (toolName) {
+        "create_spreadsheet" -> OfficeFamily.SHEET
+        "create_presentation" -> OfficeFamily.DECK
+        "create_data_file" -> OfficeFamily.DATA
+        else -> OfficeFamily.DOCUMENT
+    }
+
+    private fun officeFormat(arguments: JSONObject, family: OfficeFamily): OfficeFormat {
+        val raw = arguments.getString("format").trim().lowercase()
+        val format = OfficeFormat.byId(raw)
+            ?: throw IllegalArgumentException("Unknown format \"$raw\". Supported: ${OfficeFormat.byFamily(family).joinToString(", ") { it.id }}.")
+        require(format.family == family) {
+            "Format \"$raw\" is not supported by this tool. Supported: ${OfficeFormat.byFamily(family).joinToString(", ") { it.id }}."
+        }
+        return format
+    }
+
+    /** Accepts the payload as a nested object or as a JSON string. */
+    private fun documentPayload(arguments: JSONObject): String = when (val value = arguments.opt("document")) {
+        is JSONObject -> value.toString()
+        is String -> value
+        else -> throw IllegalArgumentException("document must be a JSON object describing the file.")
+    }
+
+    private suspend fun search(chatId: String, args: JSONObject): String {        val query = args.getString("query").trim()
         require(query.isNotEmpty() && query.length <= 200) { "Query must be 1–200 characters." }
         val roles = args.optJSONArray("roles")
         val allowed = if (roles == null || roles.length() == 0) setOf("user", "assistant") else buildSet {
@@ -190,6 +234,11 @@ class LocalToolRegistry(
             ToolSpec("search_chat", "search_chat(query: string, roles?: [user|assistant|tool], include_tools?: boolean, case_sensitive?: boolean, max_results?: 1..8, excerpt_chars?: 80..360): search saved messages in this chat; defaults to user+assistant, five newest short excerpts", setOf("query", "roles", "include_tools", "case_sensitive", "max_results", "excerpt_chars")),
             ToolSpec("html_to_pdf", "html_to_pdf(title?: string, pages?: [string], html?: string): render responsive HTML as a shareable PDF with Android WebView; JavaScript runs before printing. Prefer pages: one HTML fragment per A4 page (e.g. <style>…</style><main>…</main>, no <html> wrapper needed — Kino wraps each page), typically 1–20 pages (user limits in Settings may allow more). Each page is EXACTLY 794 CSS px wide × 1123 CSS px tall (A4) and Kino adds 14mm/12mm padding: design inside ~700px usable width and ~980px usable height per page. No fixed widths, min-widths, or flex/grid rows wider than ~700px, no vw widths beyond 100vw, no horizontal scrolling; use width:100%, box-sizing:border-box, flexible wrapping grid/flex, relative units, and keep text in normal wrapping flow. Images max-width:100% (height auto), tables width:100% with small padding and wrapped cells. Kino auto-shrinks the page if anything overflows, so stay near one page per fragment. Inline <script> and data-URI images work; set window.__kinoPdfReady=true after async rendering. Legacy html (single flowing document) is also accepted.", setOf("title", "html", "pages")),
             ToolSpec("browser", "browser(action: open|read|click|type|scroll|wait_for|press_key|hover|select_option|query|element_state|links|tables|refresh|forward|back|tabs|images|close_tab|viewport|evaluate, url?, element_id?, selector?, frame_selector?, text?, state?, key?, value?, mode?, script?, query?, direction?, pages?, offset?, limit?, timeout_ms?, tab_id?, new_tab?): browse websites in the shared Kino Browser when Web browsing is enabled. open/read prioritize named form fields and nearby buttons, including placeholders. type supports text inputs, textareas, and contenteditable fields, then returns updated controls. Displayed IDs such as a17 go in element_id, never in selector. wait_for can target element_id, real CSS selector/query, or text, with states visible/appear, hidden/disappear, attached, or detached. For example, wait_for(element_id=\"a17\", state=\"detached\") waits for that control to disappear. query supports CSS/XPath and same-origin iframe selection; links and tables return paged structured data; evaluate only accepts a safe editable-field assignment", setOf("action", "url", "element_id", "selector", "frame_selector", "text", "query", "direction", "pages", "tab_id", "new_tab", "state", "timeout_ms", "key", "value", "mode", "script", "offset", "limit")),
+            ToolSpec("document_help", "document_help(topic?: document|sheet|deck|data): read the payload schema and a worked example before you build a file. Call it once per format family instead of guessing the shape.", setOf("topic")),
+            ToolSpec("create_document", "create_document(format: docx|odt|pdf|html|epub|md|rtf|txt, document: object, theme?: string): build a properly typeset document from a structured payload. Write content and structure only - headings, paragraphs, lists, tables, key values, callouts, quotes, code, images, stat tiles and charts - never HTML, CSS or XML. Kino applies the typography, spacing, colours and pagination, and reports back anything that landed badly so you can fix it. Call document_help(topic=\"document\") first for the schema and an example.", setOf("format", "document", "theme")),
+            ToolSpec("create_spreadsheet", "create_spreadsheet(format: xlsx|ods|csv|tsv, document: object, theme?: string): build a spreadsheet with typed columns, number formats, formulas, frozen headers and a totals row. Call document_help(topic=\"sheet\") for the schema.", setOf("format", "document", "theme")),
+            ToolSpec("create_presentation", "create_presentation(format: pptx|odp, document: object, theme?: string): build a slide deck with title, section, content, two column, quote and metrics layouts plus speaker notes. Call document_help(topic=\"deck\") for the schema.", setOf("format", "document", "theme")),
+            ToolSpec("create_data_file", "create_data_file(format: json|yaml|xml, document: object): write a data file. document = {title?: string, content: string}. Kino checks that JSON and XML parse.", setOf("format", "document")),
         )
 
         val promptDescriptions: String get() = catalog.joinToString("\n") { "- ${it.signature}" }
@@ -199,6 +248,11 @@ class LocalToolRegistry(
             "date_time" -> "Checked date and time"
             "search_chat" -> "Searched this chat"
             "html_to_pdf" -> "Created PDF"
+            "create_document" -> "Created a document"
+            "create_spreadsheet" -> "Created a spreadsheet"
+            "create_presentation" -> "Created a presentation"
+            "create_data_file" -> "Created a data file"
+            "document_help" -> "Read the document schema"
             "browser" -> "Browsed website"
             else -> "Used tool"
         }
@@ -209,6 +263,11 @@ class LocalToolRegistry(
             "date_time" -> "Checking date and time" to "Timezone: ${arguments.optString("timezone").ifBlank { "device timezone" }.take(80)}"
             "search_chat" -> "Searching this chat" to "Query: ${arguments.optString("query").take(100)}"
             "html_to_pdf" -> "Working on PDF" to "Preparing ${arguments.optString("title").ifBlank { "document" }.take(100)}"
+            "create_document" -> "Building the document" to "Preparing ${arguments.optString("format").uppercase().take(40)}"
+            "create_spreadsheet" -> "Building the spreadsheet" to "Preparing ${arguments.optString("format").uppercase().take(40)}"
+            "create_presentation" -> "Building the presentation" to "Preparing ${arguments.optString("format").uppercase().take(40)}"
+            "create_data_file" -> "Writing the data file" to "Preparing ${arguments.optString("format").uppercase().take(40)}"
+            "document_help" -> "Reading the document schema" to "Loading ${arguments.optString("topic").ifBlank { "all formats" }.take(60)}"
             "browser" -> "Browsing the web" to when (arguments.optString("action")) {
                 "open" -> "Opening ${arguments.optString("url").take(100)}"
                 "click" -> "Following page control ${arguments.optString("element_id").take(16)}"

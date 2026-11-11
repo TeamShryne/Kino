@@ -478,6 +478,8 @@ private fun ToolActivityItem(message: KinoMessage, live: Boolean, tableCellMinWi
                         }
                     } else if (tool.name == "html_to_pdf") {
                         ToolActivityPdfContent(message, tableCellMinWidth)
+                    } else if (tool.name in OFFICE_FILE_TOOLS) {
+                        ToolActivityFileContent(message)
                     } else if (tool.name == "thinking") {
                         if (tool.detail.isNotBlank()) {
                             MarkdownText(tool.detail, tableCellMinWidthDp = tableCellMinWidth, modifier = Modifier.fillMaxWidth())
@@ -539,8 +541,80 @@ private fun ToolActivityPdfContent(message: KinoMessage, tableCellMinWidth: Int)
     }
 }
 
-private fun toolGroupSummary(items: List<KinoMessage>): String {
-    val counts = items.groupingBy { it.tool?.name.orEmpty() }.eachCount()
+private val OFFICE_FILE_TOOLS = setOf("create_document", "create_spreadsheet", "create_presentation", "create_data_file")
+
+/** Card for a generated office file, with open and share actions. */
+@Composable
+private fun ToolActivityFileContent(message: KinoMessage) {
+    val context = LocalContext.current
+    val tool = message.tool ?: return
+    val detail = remember(tool.detail) { runCatching { JSONObject(tool.detail) }.getOrNull() }
+    if (detail == null) {
+        Text(tool.detail.ifBlank { "Preparing the file…" }, style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val fileName = detail.optString("filename")
+    val title = detail.optString("title").ifBlank { detail.optString("label") }
+    val label = detail.optString("label")
+    val summary = detail.optString("summary")
+    val mime = detail.optString("mime").ifBlank { "application/octet-stream" }
+    val issues = remember(detail) {
+        val array = detail.optJSONArray("issues") ?: org.json.JSONArray()
+        (0 until array.length()).mapNotNull { index ->
+            array.optJSONObject(index)?.optString("message")?.takeIf { it.isNotBlank() }
+        }
+    }
+    val safeName = fileName.takeIf { it.matches(Regex("[a-z0-9][a-z0-9-]{0,79}\\.[a-z0-9]{1,10}")) }
+    Column(Modifier.fillMaxWidth()) {
+        Text(title, style = MaterialTheme.typography.bodySmall)
+        if (summary.isNotBlank()) {
+            Text("$label · $summary", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (safeName != null) {
+            val uri = remember(safeName) {
+                val file = File(context.filesDir, "office-exports/$safeName")
+                if (file.exists()) runCatching { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }.getOrNull() else null
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        uri?.let { fileUri ->
+                            val open = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(fileUri, mime)
+                                clipData = ClipData.newUri(context.contentResolver, title, fileUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(open, "Open $label")) }
+                                .onFailure { Toast.makeText(context, "No app can open this file.", Toast.LENGTH_SHORT).show() }
+                        }
+                    }, enabled = uri != null,
+                ) { Text("Open") }
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        uri?.let { fileUri ->
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = mime
+                                putExtra(Intent.EXTRA_STREAM, fileUri)
+                                clipData = ClipData.newUri(context.contentResolver, title, fileUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(share, "Share $label")) }
+                                .onFailure { Toast.makeText(context, "Could not open the share sheet.", Toast.LENGTH_SHORT).show() }
+                        }
+                    }, enabled = uri != null,
+                ) { Text("Share") }
+            }
+        }
+        if (issues.isNotEmpty()) {
+            Text("Notes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            issues.forEach { issue ->
+                Text("• $issue", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private fun toolGroupSummary(items: List<KinoMessage>): String {    val counts = items.groupingBy { it.tool?.name.orEmpty() }.eachCount()
     val labels = buildList {
         counts["thinking"]?.let { add(if (it == 1) "Thought" else "Thought $it times") }
         counts["browser"]?.let { add(if (it == 1) "Browsed the web" else "Browsed $it pages") }
@@ -549,7 +623,17 @@ private fun toolGroupSummary(items: List<KinoMessage>): String {
         counts["calculator"]?.let { add(if (it == 1) "Used calculator" else "Used calculator $it times") }
         counts["date_time"]?.let { add("Checked date and time") }
         counts["html_to_pdf"]?.let { add(if (it == 1) "Created PDF" else "Created $it PDFs") }
-        counts.filterKeys { it !in setOf("thinking", "browser", "search", "search_chat", "calculator", "date_time", "html_to_pdf") }
+        counts["create_document"]?.let { add(if (it == 1) "Created a document" else "Created $it documents") }
+        counts["create_spreadsheet"]?.let { add(if (it == 1) "Created a spreadsheet" else "Created $it spreadsheets") }
+        counts["create_presentation"]?.let { add(if (it == 1) "Created a presentation" else "Created $it presentations") }
+        counts["create_data_file"]?.let { add(if (it == 1) "Created a data file" else "Created $it data files") }
+        counts["document_help"]?.let { add("Checked the file schema") }
+        counts.filterKeys {
+            it !in setOf(
+                "thinking", "browser", "search", "search_chat", "calculator", "date_time", "html_to_pdf",
+                "create_document", "create_spreadsheet", "create_presentation", "create_data_file", "document_help",
+            )
+        }
             .values.sum().takeIf { it > 0 }?.let { add(if (it == 1) "Used a tool" else "Used $it tools") }
     }
     return labels.joinToString(" and ").ifBlank { items.firstOrNull()?.text ?: "Agent activity" }
