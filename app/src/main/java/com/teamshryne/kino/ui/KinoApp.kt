@@ -77,6 +77,7 @@ fun KinoApp(model: KinoViewModel) {
     val libraryBusy by model.libraryBusy.collectAsState()
     val libraryProgress by model.libraryProgress.collectAsState()
     val libraryError by model.libraryError.collectAsState()
+    val libraryRefreshBusy by model.libraryRefreshBusy.collectAsState()
     val firstRunCorePrompt by model.firstRunCorePrompt.collectAsState()
     val onboardingComplete by model.onboardingComplete.collectAsState()
     val browserOpen by model.browserOpen.collectAsState()
@@ -287,6 +288,7 @@ fun KinoApp(model: KinoViewModel) {
                     libraryBusy = libraryBusy,
                     libraryProgress = libraryProgress,
                     libraryError = libraryError,
+                    libraryRefreshBusy = libraryRefreshBusy,
                     onInstallLibrary = model::installLibrary,
                     onRefreshLibraries = model::refreshLibraries,
                 ) else ChatsScreen(

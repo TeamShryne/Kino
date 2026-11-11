@@ -13,7 +13,7 @@ import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipFile
 
-private const val CATALOG_URL = "https://raw.githubusercontent.com/TeamShryne/kino-libraries/main/libraries.json"
+private const val CATALOG_URL = "https://teamshryne.github.io/kino-libraries/libraries.json"
 private val supportedAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
 data class LibraryArtifact(val abi: String, val fileName: String, val url: String, val sha256: String, val size: Long)
@@ -129,7 +129,7 @@ class RuntimeLibraries(private val context: Context) {
 
     private fun destination(library: RuntimeLibrary, artifact: LibraryArtifact) = File(File(root, library.id), "${library.version}/${artifact.abi}")
     private fun downloadText(url: String): String {
-        require(url.startsWith("https://raw.githubusercontent.com/TeamShryne/kino-libraries/"))
+        require(url.startsWith("https://teamshryne.github.io/kino-libraries/"))
         val refreshedUrl = "$url${if (url.contains('?')) '&' else '?'}kino_refresh=${System.currentTimeMillis()}"
         val connection = URL(refreshedUrl).openConnection() as HttpURLConnection
         try {

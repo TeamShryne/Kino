@@ -114,6 +114,7 @@ fun SettingsScreen(
     libraryBusy: String?,
     libraryProgress: Float,
     libraryError: String?,
+    libraryRefreshBusy: Boolean = false,
     onInstallLibrary: (String) -> Unit,
     onRefreshLibraries: () -> Unit,
 ) {
@@ -270,6 +271,7 @@ private fun SettingsDetail(
     libraryBusy: String?,
     libraryProgress: Float,
     libraryError: String?,
+    libraryRefreshBusy: Boolean = false,
     onInstallLibrary: (String) -> Unit,
     onRefreshLibraries: () -> Unit,
 ) {
@@ -336,7 +338,7 @@ private fun SettingsDetail(
                 remoteSessions, onRefreshSessions, onOpenRemoteSession, onPinRemoteSession, onDeleteRemoteSession,
                 onRenameRemoteSession,
             )
-            "libraries" -> LibrariesSettings(libraryStates, libraryBusy, libraryProgress, libraryError, onInstallLibrary, onRefreshLibraries)
+            "libraries" -> LibrariesSettings(libraryStates, libraryBusy, libraryProgress, libraryError, libraryRefreshBusy, onInstallLibrary, onRefreshLibraries)
             "storage" -> SettingSurface {
                 SettingValue(Icons.Rounded.Storage, "Conversation history", "On this device")
                 HorizontalDivider(Modifier.padding(start = 46.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
@@ -353,7 +355,7 @@ private fun SettingsDetail(
 }
 
 @Composable
-private fun LibrariesSettings(states: List<LibraryState>, busy: String?, progress: Float, error: String?, onInstall: (String) -> Unit, onRefresh: () -> Unit) {
+private fun LibrariesSettings(states: List<LibraryState>, busy: String?, progress: Float, error: String?, refreshBusy: Boolean, onInstall: (String) -> Unit, onRefresh: () -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
         item { Text("Libraries are downloaded to private app storage and verified before installation.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (error != null) item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -383,7 +385,7 @@ private fun LibrariesSettings(states: List<LibraryState>, busy: String?, progres
                 }
             }
         }
-        item { TextButton(onClick = onRefresh) { Text("Refresh catalog") } }
+        item { TextButton(onClick = onRefresh, enabled = !refreshBusy) { Text(if (refreshBusy) "Refreshing…" else "Refresh catalog") } }
     }
 }
 

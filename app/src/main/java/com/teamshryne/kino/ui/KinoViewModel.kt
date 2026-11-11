@@ -66,6 +66,8 @@ class KinoViewModel(
     val libraries: StateFlow<List<LibraryState>> = _libraries.asStateFlow()
     private val _libraryBusy = MutableStateFlow<String?>(null)
     val libraryBusy: StateFlow<String?> = _libraryBusy.asStateFlow()
+    private val _libraryRefreshBusy = MutableStateFlow(false)
+    val libraryRefreshBusy: StateFlow<Boolean> = _libraryRefreshBusy.asStateFlow()
     private val _libraryProgress = MutableStateFlow(0f)
     val libraryProgress: StateFlow<Float> = _libraryProgress.asStateFlow()
     private val _libraryError = MutableStateFlow<String?>(null)
@@ -194,6 +196,8 @@ class KinoViewModel(
     private fun coreReady(): Boolean = _libraries.value.any { it.library.id == "kino-core" && it.installed }
 
     fun refreshLibraries() = viewModelScope.launch {
+        if (_libraryRefreshBusy.value) return@launch
+        _libraryRefreshBusy.value = true
         try {
             _libraries.value = libraryManager.catalog().map(libraryManager::state)
             _libraryError.value = null
@@ -206,6 +210,7 @@ class KinoViewModel(
                 _firstRunCorePrompt.value = true
             }
         } catch (error: Exception) { _libraryError.value = error.message?.take(240) ?: "Could not load available libraries." }
+        finally { _libraryRefreshBusy.value = false }
     }
 
     fun installLibrary(id: String) = viewModelScope.launch {
