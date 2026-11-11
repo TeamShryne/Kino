@@ -721,7 +721,7 @@ class KinoViewModel(
                         toolRegistry.execute(chatId, call.name, call.arguments, browserEnabled = active.searchEnabled)
                     } catch (error: Exception) {
                         if (generation.cancelled.get()) throw error
-                        val reason = error.message?.take(500) ?: "Tool failed."
+                        val reason = (error.message ?: error.toString()).take(500)
                         finishLocalTool(liveId, "Failed", reason)
                         null
                     }

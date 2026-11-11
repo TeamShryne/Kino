@@ -11,9 +11,13 @@ class KinoOfficeClient(private val context: Context) {
 
     suspend fun render(arguments: JSONObject): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         if (!isInstalled()) error("Install Kino Office from Settings > Libraries before creating Office files.")
-        val loader = libraries.officeClassLoader()
-        val officeClass = loader.loadClass("com.teamshryne.kinooffice.OfficeLibrary")
-        val method = officeClass.getMethod("render", Context::class.java, JSONObject::class.java)
-        method.invoke(null, context, arguments) as? String ?: error("Kino Office did not return a filename.")
+        try {
+            val loader = libraries.officeClassLoader()
+            val officeClass = loader.loadClass("com.teamshryne.kinooffice.OfficeLibrary")
+            val method = officeClass.getMethod("render", Context::class.java, JSONObject::class.java)
+            method.invoke(null, context, arguments) as? String ?: error("Kino Office did not return a filename.")
+        } catch (error: Throwable) {
+            throw IllegalStateException("Kino Office render failed: ${error::class.qualifiedName}: ${error.message ?: error}", error)
+        }
     }
 }
