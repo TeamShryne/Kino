@@ -18,8 +18,8 @@ import com.teamshryne.kino.data.provider.DeepSeekCoreClient
 import com.teamshryne.kino.data.provider.ProviderCapabilities
 import com.teamshryne.kino.data.provider.ProviderSession
 import com.teamshryne.kino.data.tools.HtmlPdfRenderer
-import com.teamshryne.kino.data.tools.KinoOfficeClient
 import com.teamshryne.kino.data.tools.LocalToolRegistry
+import com.teamshryne.kino.data.tools.OfficeToolExecutor
 import com.teamshryne.kino.data.tools.ToolCallProtocol
 import com.teamshryne.kino.domain.model.ChatProviderState
 import com.teamshryne.kino.domain.model.KinoChat
@@ -82,16 +82,20 @@ class KinoViewModel(
         maxPageChars = _pdfMaxPageKb.value * 1024,
         maxPdfBytes = _pdfMaxMb.value.toLong() * 1024 * 1024,
     )
-    private val officeClient = KinoOfficeClient(application)
+    private val officeExecutor = OfficeToolExecutor(application) { title, html, geometry, decorations ->
+        val fileName = com.teamshryne.kino.office.OfficeBuilder.fileName(title, com.teamshryne.kino.office.OfficeFormat.PDF)
+        val output = File(application.filesDir, "office-exports/$fileName")
+        HtmlPdfRenderer(application, currentPdfLimits()).createFromHtml(title, html, geometry, decorations, output)
+    }
     private val toolRegistry = LocalToolRegistry(
         messages = { chatId -> conversations.messages(chatId) },
         renderPdf = { title, pages, paged -> HtmlPdfRenderer(application, currentPdfLimits()).create(title, pages, paged) },
         pdfLimits = { currentPdfLimits() },
+        office = officeExecutor,
         browse = { arguments ->
             kotlinx.coroutines.delay(100)
             runtime.browserMutex.withLock { browserSession.execute(arguments) }
         },
-        renderOffice = { arguments -> officeClient.render(arguments) },
     )
     private val credentialStore = provider.credentialStore()
     private val _chats = MutableStateFlow<List<KinoChat>>(emptyList())

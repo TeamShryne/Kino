@@ -46,6 +46,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":office"))
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.browser:browser:1.8.0")

@@ -71,6 +71,9 @@ jobs:
             echo "ANDROID_DEBUG_KEY_ALIAS=$ANDROID_DEBUG_KEY_ALIAS"
           } >> "$GITHUB_ENV"
 
+      - name: Test the office document pipeline
+        run: gradle :office:test --console=plain
+
       - name: Build debug APK (PR check)
         run: gradle --build-cache --configuration-cache --parallel :app:assembleDebug
 
