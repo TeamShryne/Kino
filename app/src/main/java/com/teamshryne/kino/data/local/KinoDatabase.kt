@@ -206,8 +206,9 @@ class KinoDatabase(context: android.content.Context) : SQLiteOpenHelper(context,
 
     fun deleteChat(chatId: String): Int = writableDatabase.delete("chats", "id=?", arrayOf(chatId))
 
+    /** Renaming only changes the label; it must not reorder the chat list. */
     fun renameChat(chatId: String, title: String): Int = writableDatabase.update(
-        "chats", ContentValues().apply { put("title", title); put("updated_at", System.currentTimeMillis()) },
+        "chats", ContentValues().apply { put("title", title) },
         "id=?", arrayOf(chatId),
     )
 

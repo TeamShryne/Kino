@@ -1,5 +1,6 @@
 package com.teamshryne.kino.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForwardIos
@@ -49,12 +49,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.data.provider.ProviderModel
 import com.teamshryne.kino.data.provider.ProviderSession
 import com.teamshryne.kino.data.libraries.LibraryState
+import com.teamshryne.kino.ui.components.KinoGlyphTile
+import com.teamshryne.kino.ui.components.KinoHeader
+import com.teamshryne.kino.ui.components.KinoSearchField
 
 private data class SettingEntry(val id: String, val title: String, val icon: ImageVector, val section: String)
 
@@ -120,57 +121,47 @@ fun SettingsScreen(
     LaunchedEffect(page) {
         if (page == "libraries") onRefreshLibraries()
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 7.dp, end = 18.dp, top = 8.dp, bottom = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (page != null) IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
-            Text(
-                if (page == null) "Settings" else settingEntries.firstOrNull { it.id == page }?.title ?: "Settings",
-                style = if (page == null) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-        }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (page == null) {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                placeholder = { Text("Search settings") },
-                singleLine = true,
-                shape = RoundedCornerShape(17.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            )
+            KinoHeader()
+            KinoSearchField(query = search, onQuery = { search = it }, placeholder = "Search settings")
             val visible = settingEntries.filter { it.title.contains(search, ignoreCase = true) }
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(13.dp),
-            ) {
+            LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
                 visible.groupBy { it.section }.forEach { (section, entries) ->
                     item(key = "section-$section") {
-                        Text(section, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 1.1.sp)
+                        Text(
+                            section,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+                        )
                     }
                     item(key = "group-$section") {
-                        Surface(
-                            shape = RoundedCornerShape(22.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ) {
-                            Column {
-                                entries.forEachIndexed { index, entry ->
-                                    SettingsEntryRow(entry, onOpen)
-                                    if (index < entries.lastIndex) HorizontalDivider(
-                                        Modifier.padding(start = 47.dp, end = 14.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                                    )
-                                }
+                        Column {
+                            entries.forEachIndexed { index, entry ->
+                                SettingsEntryRow(entry, onOpen)
+                                if (index < entries.lastIndex) HorizontalDivider(
+                                    Modifier.padding(start = 72.dp, end = 20.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                                )
                             }
                         }
                     }
                 }
             }
         } else {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 7.dp, end = 18.dp, top = 8.dp, bottom = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
+                Text(
+                    settingEntries.firstOrNull { it.id == page }?.title ?: "Settings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             SettingsDetail(
                 page = page,
                 dark = dark,
@@ -222,12 +213,17 @@ fun SettingsScreen(
 @Composable
 private fun SettingsEntryRow(entry: SettingEntry, onOpen: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onOpen(entry.id) }.padding(horizontal = 15.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable { onOpen(entry.id) }.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        KinoGlyphTile(glyph = entry.icon, seed = entry.id)
         Spacer(Modifier.width(12.dp))
-        Text(entry.title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        Text(
+            entry.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
         Icon(Icons.Rounded.ArrowForwardIos, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
     }
 }

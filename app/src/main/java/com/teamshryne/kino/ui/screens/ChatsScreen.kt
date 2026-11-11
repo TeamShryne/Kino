@@ -1,7 +1,6 @@
 package com.teamshryne.kino.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,9 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
@@ -36,7 +32,6 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -66,12 +61,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.teamshryne.kino.domain.model.KinoChat
 import com.teamshryne.kino.ui.components.EmptyPanel
+import com.teamshryne.kino.ui.components.KinoGlyphTile
+import com.teamshryne.kino.ui.components.KinoHeader
+import com.teamshryne.kino.ui.components.KinoSearchField
 import com.teamshryne.kino.ui.components.compactRelativeTime
 import java.util.Calendar
-import kotlin.math.absoluteValue
 
 private enum class ChatFilter(val label: String) {
     All("All"),
@@ -79,16 +75,6 @@ private enum class ChatFilter(val label: String) {
     Files("Files"),
     Today("Today"),
 }
-
-/** Tinted tiles behind each chat, so the list reads like the reference home screen. */
-private val tilePalette = listOf(
-    Color(0xFF2E2447) to Color(0xFFB79CFF),
-    Color(0xFF17352A) to Color(0xFF74D6A8),
-    Color(0xFF1B2C48) to Color(0xFF8AB4F8),
-    Color(0xFF3A2136) to Color(0xFFF49ACB),
-    Color(0xFF12333A) to Color(0xFF6ED0D8),
-    Color(0xFF3A2A14) to Color(0xFFE3AC6B),
-)
 
 @Composable
 fun ChatsScreen(
@@ -138,35 +124,9 @@ fun ChatsScreen(
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(7.dp))
-            Text("Kino", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        }
+        KinoHeader { NewChatButton(onNewChat) }
 
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Chats",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.8).sp,
-                modifier = Modifier.weight(1f),
-            )
-            NewChatButton(onNewChat)
-        }
-
-        ChatSearchField(query = query, onQuery = onQuery)
+        KinoSearchField(query = query, onQuery = onQuery, placeholder = "Search your chats")
 
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 14.dp),
@@ -260,60 +220,6 @@ private fun NewChatButton(onNewChat: () -> Unit) {
 }
 
 @Composable
-private fun ChatSearchField(query: String, onQuery: (String) -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 18.dp, end = 20.dp).height(46.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-    ) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = onQuery,
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                decorationBox = { inner ->
-                    Box {
-                        if (query.isEmpty()) {
-                            Text(
-                                "Search your chats",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        inner()
-                    }
-                },
-            )
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQuery("") }, modifier = Modifier.size(26.dp)) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
@@ -351,7 +257,11 @@ private fun ChatRow(
             .padding(start = 20.dp, end = 8.dp, top = 13.dp, bottom = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChatGlyphTile(chat)
+        KinoGlyphTile(
+            glyph = chatGlyph(chat),
+            seed = chat.id,
+            fallbackText = chat.title.trim().take(1).uppercase(),
+        )
         Spacer(Modifier.width(12.dp))
         Row(
             Modifier.weight(1f),
@@ -389,7 +299,7 @@ private fun ChatRow(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).clickable { onStartEditing() },
+                    modifier = Modifier.weight(1f),
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -429,30 +339,6 @@ private fun ChatRow(
         }
     }
 }
-
-@Composable
-private fun ChatGlyphTile(chat: KinoChat) {
-    val (background, foreground) = remember(chat.id) { tileColors(chat) }
-    val glyph = remember(chat.id, chat.title, chat.preview) { chatGlyph(chat) }
-    Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(background),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (glyph != null) {
-            Icon(glyph, contentDescription = null, tint = foreground, modifier = Modifier.size(19.dp))
-        } else {
-            Text(
-                chat.title.trim().take(1).uppercase(),
-                color = foreground,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
-
-private fun tileColors(chat: KinoChat): Pair<Color, Color> =
-    tilePalette[chat.id.hashCode().absoluteValue % tilePalette.size]
 
 private fun chatGlyph(chat: KinoChat): ImageVector? {
     val text = "${chat.title} ${chat.preview}".lowercase()
